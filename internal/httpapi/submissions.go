@@ -8,19 +8,27 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/sorenhoang/go-judge/internal/judge"
 	"github.com/sorenhoang/go-judge/internal/problem"
+	"github.com/sorenhoang/go-judge/internal/runnerclient"
 	"github.com/sorenhoang/go-judge/internal/submission"
 )
 
 type SubmissionHandler struct {
 	submissionRepo submission.Repository
 	problemRepo    problem.Repository
-	judgeRunner    judge.Runner
+	judgeRunner    *runnerclient.Client
 }
 
-func NewSubmissionHandler(submissionRepo submission.Repository, problemRepo problem.Repository, judgeRunner judge.Runner) SubmissionHandler {
-	return SubmissionHandler{submissionRepo: submissionRepo, problemRepo: problemRepo, judgeRunner: judgeRunner}
+func NewSubmissionHandler(
+	submissionRepo submission.Repository,
+	problemRepo problem.Repository,
+	judgeRunner *runnerclient.Client,
+) SubmissionHandler {
+	return SubmissionHandler{
+		submissionRepo: submissionRepo,
+		problemRepo:    problemRepo,
+		judgeRunner:    judgeRunner,
+	}
 }
 
 func (h SubmissionHandler) RegisterRoutes(r chi.Router) {

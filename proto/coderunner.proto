@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package coderunner;
+
+option go_package = "github.com/sorenhoang/go-judge/proto;coderunnerpb";
+
+service CodeRunnerService{
+    rpc RunTests(RunTestsRequest) returns (RunTestsResponse);
+}
+
+message RunTestsRequest {
+  string code = 1;
+  string test_code = 2;
+}
+
+message RunTestsResponse {
+  string verdict = 1;
+  string output = 2;
+  int32 total_tests = 3;
+  int32 passed_tests = 4;
+}

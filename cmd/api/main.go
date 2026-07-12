@@ -10,8 +10,8 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/sorenhoang/go-judge/internal/config"
 	"github.com/sorenhoang/go-judge/internal/httpapi"
-	"github.com/sorenhoang/go-judge/internal/judge"
 	"github.com/sorenhoang/go-judge/internal/problem"
+	"github.com/sorenhoang/go-judge/internal/runnerclient"
 	"github.com/sorenhoang/go-judge/internal/submission"
 )
 
@@ -41,10 +41,14 @@ func main() {
 
 	problemRepo := problem.NewPostgresRepository(db)
 	submissionRepo := submission.NewPostgresRepository(db)
-	judgeRunner := judge.NewRunner()
+	runnerClient, closeRunner, err := runnerclient.Dial(cfg.RunnerAddr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer closeRunner()
 
 	problemHandler := httpapi.NewProblemHandler(problemRepo)
-	submissionHandler := httpapi.NewSubmissionHandler(submissionRepo, problemRepo, judgeRunner)
+	submissionHandler := httpapi.NewSubmissionHandler(submissionRepo, problemRepo, runnerClient)
 
 	problemHandler.RegisterRoutes(r)
 	submissionHandler.RegisterRoutes(r)
