@@ -4,7 +4,17 @@ A local LeetCode-style judge system built with Go to practice Go syntax, REST AP
 
 ## Status
 
-🚧 Not started yet — currently on Phase 0 (project setup). See the implementation plan for progress.
+✅ Phase 1 done — Monolith Judge MVP: React frontend → Go API → Postgres → runs real `go test` and returns a verdict (PASSED/FAILED/ERROR). Next up: Phase 2 (extract Code Runner via gRPC). See the implementation plan for details.
+
+## Running locally
+
+```bash
+docker compose up -d              # postgres
+migrate -path migrations -database "$DATABASE_URL" up
+go run ./cmd/api                  # backend on :8080
+
+cd frontend && npm install && npm run dev   # frontend on :5173
+```
 
 ## Docs
 
