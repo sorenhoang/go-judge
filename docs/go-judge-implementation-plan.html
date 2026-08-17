@@ -17,7 +17,10 @@
   blockquote { border-left: 4px solid #2b6cb0; margin: 16px 0; padding: 4px 16px; background: #f7fafc; color: #444; }
   .phase { border: 1px solid #ddd; border-radius: 8px; padding: 4px 24px; margin: 24px 0; background: #fafafa; }
   .badge { display: inline-block; background: #2b6cb0; color: white; padding: 2px 10px; border-radius: 12px; font-size: 0.8em; margin-right: 8px; }
+  .badge.done { background: #2f855a; }
+  .phase.done { border-color: #2f855a; background: #f4faf6; }
   ul li { margin-bottom: 4px; }
+  .status-table td:first-child { white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -28,6 +31,17 @@
 This document turns <code>docs/go-judge-high-level-idea.md</code> into small, codeable, reviewable phases.<br>
 Primary learning language: Go (from syntax to backend architecture).
 </blockquote>
+
+<table class="status-table">
+<tr><th>Phase</th><th>Status</th></tr>
+<tr><td>0 — Environment setup</td><td>✅ Done</td></tr>
+<tr><td>1 — Monolith Judge (MVP)</td><td>✅ Done</td></tr>
+<tr><td>2 — Code Runner (gRPC)</td><td>✅ Done</td></tr>
+<tr><td>3 — RabbitMQ + Judge Worker</td><td>✅ Done</td></tr>
+<tr><td>4 — Reliability (retry, DLQ, idempotency, graceful shutdown)</td><td>✅ Done</td></tr>
+<tr><td>5 — Docker Sandbox</td><td>⏳ Not started</td></tr>
+<tr><td>6 — Realtime Result</td><td>⏳ Not started</td></tr>
+</table>
 
 <h2>0. How we'll work together</h2>
 <ol>
@@ -73,8 +87,8 @@ Primary learning language: Go (from syntax to backend architecture).
 └── go.mod
 </code></pre>
 
-<div class="phase">
-<h2><span class="badge">Phase 0</span>Environment setup</h2>
+<div class="phase done">
+<h2><span class="badge done">Phase 0 ✓</span>Environment setup</h2>
 
 <p><strong>Goal:</strong> Have a working Go project serving "Hello World" over HTTP, Postgres running via Docker Compose, and a clear git flow.</p>
 
@@ -90,11 +104,11 @@ Primary learning language: Go (from syntax to backend architecture).
 
 <p><strong>Tasks:</strong></p>
 <ul>
-<li>[ ] <code>go mod init</code></li>
-<li>[ ] Install <code>chi</code>: <code>go get github.com/go-chi/chi/v5</code></li>
-<li>[ ] Write <code>main.go</code> with a <code>chi</code> router, one <code>/healthz</code> route</li>
-<li>[ ] Write <code>docker-compose.yml</code> with only postgres (image <code>postgres:16</code>, volume, env <code>POSTGRES_PASSWORD</code>)</li>
-<li>[ ] <code>docker compose up -d</code> works, can connect via <code>psql</code></li>
+<li>[x] <code>go mod init</code></li>
+<li>[x] Install <code>chi</code>: <code>go get github.com/go-chi/chi/v5</code></li>
+<li>[x] Write <code>main.go</code> with a <code>chi</code> router, one <code>/healthz</code> route</li>
+<li>[x] Write <code>docker-compose.yml</code> with only postgres (image <code>postgres:16</code>, volume, env <code>POSTGRES_PASSWORD</code>)</li>
+<li>[x] <code>docker compose up -d</code> works, can connect via <code>psql</code></li>
 </ul>
 
 <p><strong>Go concepts:</strong> <code>package main</code>, <code>go.mod</code>/<code>go.sum</code>, <code>net/http.Handler</code>, <code>ListenAndServe</code>, basic error handling (<code>log.Fatal</code>).</p>
@@ -108,8 +122,8 @@ docker compose ps                 # postgres "healthy"
 </code></pre>
 </div>
 
-<div class="phase">
-<h2><span class="badge">Phase 1</span>Monolith Judge (MVP)</h2>
+<div class="phase done">
+<h2><span class="badge done">Phase 1 ✓</span>Monolith Judge (MVP)</h2>
 
 <p>Overall goal: <strong>Frontend → Backend API → Postgres → run <code>go test</code> directly inside the API process</strong> (no gRPC, no queue — matches the MVP scope in the idea doc §8).</p>
 
@@ -121,10 +135,10 @@ docker compose ps                 # postgres "healthy"
 
 <p><strong>Tasks:</strong></p>
 <ul>
-<li>[ ] Define <code>struct Problem</code> in <code>internal/problem/problem.go</code> (fields per idea doc §5)</li>
-<li>[ ] Write a <code>[]Problem</code> slice containing at least "sum-slice" (use the exact example from idea doc §7)</li>
-<li>[ ] Handler <code>GET /problems</code> → return JSON list (hide <code>test_code</code> from the response — users must not see hidden tests)</li>
-<li>[ ] Handler <code>GET /problems/{id}</code> → 404 if not found</li>
+<li>[x] Define <code>struct Problem</code> in <code>internal/problem/problem.go</code> (fields per idea doc §5)</li>
+<li>[x] Write a <code>[]Problem</code> slice containing at least "sum-slice" (use the exact example from idea doc §7)</li>
+<li>[x] Handler <code>GET /problems</code> → return JSON list (hide <code>test_code</code> from the response — users must not see hidden tests)</li>
+<li>[x] Handler <code>GET /problems/{id}</code> → 404 if not found</li>
 </ul>
 
 <p><strong>Go concepts:</strong> <code>struct</code>, <code>slice</code>, <code>encoding/json</code> (struct tags <code>json:"..."</code>), <code>chi.URLParam</code>, status codes, pointer vs. value receiver.</p>
@@ -143,11 +157,11 @@ curl -i localhost:8080/problems/no-such-id # 404
 
 <p><strong>Tasks:</strong></p>
 <ul>
-<li>[ ] Write migration <code>000001_create_problems.sql</code> (schema per idea doc §6, include <code>up</code>/<code>down</code>)</li>
-<li>[ ] Write <code>internal/config</code> to read <code>DATABASE_URL</code> from env</li>
-<li>[ ] Write <code>internal/problem.Repository</code> interface + <code>postgresRepository</code> impl using <code>database/sql</code> (<code>QueryRowContext</code>, <code>QueryContext</code>, <code>Scan</code>)</li>
-<li>[ ] Seed 3-4 problems via migration or a separate script (sum-slice, reverse-string, word-frequency)</li>
-<li>[ ] Update the 1.1 handlers to use the repository instead of the hard-coded slice</li>
+<li>[x] Write migration <code>000001_create_problems.sql</code> (schema per idea doc §6, include <code>up</code>/<code>down</code>)</li>
+<li>[x] Write <code>internal/config</code> to read <code>DATABASE_URL</code> from env</li>
+<li>[x] Write <code>internal/problem.Repository</code> interface + <code>postgresRepository</code> impl using <code>database/sql</code> (<code>QueryRowContext</code>, <code>QueryContext</code>, <code>Scan</code>)</li>
+<li>[x] Seed 3-4 problems via migration or a separate script (sum-slice, reverse-string, word-frequency)</li>
+<li>[x] Update the 1.1 handlers to use the repository instead of the hard-coded slice</li>
 </ul>
 
 <p><strong>Go concepts:</strong> <code>database/sql</code>, <code>context.Context</code> (pass into every query), interface for the repository (for testing/mocking later), <code>sql.ErrNoRows</code>.</p>
@@ -165,10 +179,10 @@ curl localhost:8080/problems   # data comes from the DB, not hard-coded (stop th
 
 <p><strong>Tasks:</strong></p>
 <ul>
-<li>[ ] Migration <code>000002_create_submissions.sql</code></li>
-<li>[ ] <code>internal/submission.Model</code> + <code>Repository</code> (Create, GetByID, UpdateResult)</li>
-<li>[ ] Handler <code>POST /submissions</code>: validate <code>problemId</code> exists (call the problem repo), validate <code>code</code> isn't empty, generate an <code>id</code> (use <code>github.com/google/uuid</code> or hand-roll a ULID — pick one, not both)</li>
-<li>[ ] Handler <code>GET /submissions/{id}</code></li>
+<li>[x] Migration <code>000002_create_submissions.sql</code></li>
+<li>[x] <code>internal/submission.Model</code> + <code>Repository</code> (Create, GetByID, UpdateResult)</li>
+<li>[x] Handler <code>POST /submissions</code>: validate <code>problemId</code> exists (call the problem repo), validate <code>code</code> isn't empty, generate an <code>id</code> (use <code>github.com/google/uuid</code> or hand-roll a ULID — pick one, not both)</li>
+<li>[x] Handler <code>GET /submissions/{id}</code></li>
 </ul>
 
 <p><strong>Go concepts:</strong> Decoding JSON request bodies (<code>json.NewDecoder</code>), manual input validation (no validation lib yet — YAGNI), error wrapping (<code>fmt.Errorf("...: %w", err)</code>).</p>
@@ -194,13 +208,13 @@ curl -X POST localhost:8080/submissions -d '{"problemId":"no-exist","code":"..."
 
 <p><strong>Tasks:</strong></p>
 <ul>
-<li>[ ] <code>internal/judge.Runner</code>: takes <code>(code string, testCode string) (Result, error)</code></li>
-<li>[ ] Create a temp dir: <code>os.MkdirTemp("", "submission_*")</code>, remember <code>defer os.RemoveAll</code></li>
-<li>[ ] Write two files: <code>solution.go</code> (package + user code, needs correct package wrapping) and <code>solution_test.go</code> (test code)</li>
-<li>[ ] Run <code>exec.CommandContext(ctx, "go", "test", "-json", "./...")</code> in that directory (<code>cmd.Dir = tmpDir</code>), use <code>-json</code> for easier parsing than raw text</li>
-<li>[ ] Parse the output: count passed/failed tests, determine the overall verdict: all pass → <code>PASSED</code>, any fail → <code>FAILED</code>, compile error/timeout → <code>ERROR</code></li>
-<li>[ ] Set a timeout with <code>context.WithTimeout</code> (e.g. 10s) — if exceeded, verdict is <code>ERROR</code> with a clear message</li>
-<li>[ ] Call <code>judge.Runner</code> directly inside the <code>POST /submissions</code> handler (sync), update the submission before responding</li>
+<li>[x] <code>internal/judge.Runner</code>: takes <code>(code string, testCode string) (Result, error)</code></li>
+<li>[x] Create a temp dir: <code>os.MkdirTemp("", "submission_*")</code>, remember <code>defer os.RemoveAll</code></li>
+<li>[x] Write two files: <code>solution.go</code> (package + user code, needs correct package wrapping) and <code>solution_test.go</code> (test code)</li>
+<li>[x] Run <code>exec.CommandContext(ctx, "go", "test", "-json", "./...")</code> in that directory (<code>cmd.Dir = tmpDir</code>), use <code>-json</code> for easier parsing than raw text</li>
+<li>[x] Parse the output: count passed/failed tests, determine the overall verdict: all pass → <code>PASSED</code>, any fail → <code>FAILED</code>, compile error/timeout → <code>ERROR</code></li>
+<li>[x] Set a timeout with <code>context.WithTimeout</code> (e.g. 10s) — if exceeded, verdict is <code>ERROR</code> with a clear message</li>
+<li>[x] Call <code>judge.Runner</code> directly inside the <code>POST /submissions</code> handler (sync), update the submission before responding</li>
 </ul>
 
 <p><strong>Go concepts:</strong> <code>os/exec</code>, <code>context.WithTimeout</code>, <code>os.MkdirTemp</code>/<code>defer</code>, handling <code>stdout</code>/<code>stderr</code>, streaming <code>encoding/json</code> decoding (for <code>go test -json</code>) — no goroutines needed here yet (still synchronous), but this is a spot where races show up easily if done carelessly.</p>
@@ -229,10 +243,10 @@ curl localhost:8080/submissions/&lt;id&gt;   # status: ERROR, output contains th
 
 <p><strong>Tasks:</strong></p>
 <ul>
-<li>[ ] <code>npm create vite@latest frontend -- --template react-ts</code></li>
-<li>[ ] <code>/problems</code> page: fetch list, render</li>
-<li>[ ] <code>/problems/:id</code> page: fetch detail, textarea + submit → call <code>POST /submissions</code> → navigate to <code>/submissions/:id</code></li>
-<li>[ ] <code>/submissions/:id</code> page: poll until a verdict exists, show output</li>
+<li>[x] <code>npm create vite@latest frontend -- --template react-ts</code></li>
+<li>[x] <code>/problems</code> page: fetch list, render</li>
+<li>[x] <code>/problems/:id</code> page: fetch detail, textarea + submit → call <code>POST /submissions</code> → navigate to <code>/submissions/:id</code></li>
+<li>[x] <code>/submissions/:id</code> page: poll until a verdict exists, show output</li>
 </ul>
 
 <p><strong>Learning focus:</strong> not the main Go focus, keep it minimal — no Redux, no Monaco, no design system. Plain <code>fetch</code> + <code>useState</code>/<code>useEffect</code> is enough.</p>
@@ -240,8 +254,8 @@ curl localhost:8080/submissions/&lt;id&gt;   # status: ERROR, output contains th
 <p><strong>Acceptance Criteria:</strong> In the browser, walk through the full flow: pick a problem → edit code → submit → see PASSED/FAILED without opening devtools/curl.</p>
 </div>
 
-<div class="phase">
-<h2><span class="badge">Phase 2</span>Extract the Code Runner Service (gRPC)</h2>
+<div class="phase done">
+<h2><span class="badge done">Phase 2 ✓</span>Extract the Code Runner Service (gRPC)</h2>
 
 <p><strong>Goal:</strong> The logic from 1.4 (<code>judge.Runner</code>) moves into its own service, <code>cmd/runner</code>, reachable over gRPC. The backend API no longer runs <code>go test</code> itself.</p>
 
@@ -257,12 +271,12 @@ curl localhost:8080/submissions/&lt;id&gt;   # status: ERROR, output contains th
 
 <p><strong>Tasks:</strong></p>
 <ul>
-<li>[ ] Write the <code>.proto</code> (copy the exact contract from idea doc §4.5)</li>
-<li>[ ] <code>protoc --go_out=. --go-grpc_out=.</code> to generate code (install <code>protoc-gen-go</code>, <code>protoc-gen-go-grpc</code>)</li>
-<li>[ ] <code>cmd/runner/main.go</code>: implement <code>CodeRunnerServiceServer</code>, internally reuse the logic from <code>internal/judge.Runner</code> (move the package, don't rewrite the logic)</li>
-<li>[ ] <code>internal/runnerclient</code>: wrap <code>grpc.NewClient</code> + the generated client, method <code>RunTests(ctx, problemID, code) (Result, error)</code></li>
-<li>[ ] Update the submission handler in the API to call <code>runnerclient.RunTests</code> instead of the local <code>judge.Runner</code></li>
-<li>[ ] Add <code>code-runner</code> to docker-compose, both services running in containers, expose port 50051 internally</li>
+<li>[x] Write the <code>.proto</code> (copy the exact contract from idea doc §4.5)</li>
+<li>[x] <code>protoc --go_out=. --go-grpc_out=.</code> to generate code (install <code>protoc-gen-go</code>, <code>protoc-gen-go-grpc</code>)</li>
+<li>[x] <code>cmd/runner/main.go</code>: implement <code>CodeRunnerServiceServer</code>, internally reuse the logic from <code>internal/judge.Runner</code> (move the package, don't rewrite the logic)</li>
+<li>[x] <code>internal/runnerclient</code>: wrap <code>grpc.NewClient</code> + the generated client, method <code>RunTests(ctx, problemID, code) (Result, error)</code></li>
+<li>[x] Update the submission handler in the API to call <code>runnerclient.RunTests</code> instead of the local <code>judge.Runner</code></li>
+<li>[x] Add <code>code-runner</code> to docker-compose, both services running in containers, expose port 50051 internally</li>
 </ul>
 
 <p><strong>Go concepts:</strong> basic Protocol Buffers, <code>grpc.Dial</code>/<code>NewClient</code>, propagating a <code>context</code> deadline over gRPC, service boundaries (interface cleanly separates business logic from transport), gRPC errors (<code>status.Error</code>, <code>codes.DeadlineExceeded</code>).</p>
@@ -276,8 +290,8 @@ curl -X POST localhost:8080/submissions -d '...'   # still works end-to-end exac
 </code></pre>
 </div>
 
-<div class="phase">
-<h2><span class="badge">Phase 3</span>Add a Message Queue + Worker</h2>
+<div class="phase done">
+<h2><span class="badge done">Phase 3 ✓</span>Add a Message Queue + Worker</h2>
 
 <p><strong>Goal:</strong> Submissions are processed asynchronously. <code>POST /submissions</code> returns <code>PENDING</code> right away, without waiting for the judge to finish.</p>
 
@@ -292,10 +306,10 @@ curl -X POST localhost:8080/submissions -d '...'   # still works end-to-end exac
 
 <p><strong>Tasks:</strong></p>
 <ul>
-<li>[ ] <code>internal/queue</code>: <code>Publisher.Publish(ctx, msg)</code> and <code>Consumer.Consume(handler func(msg) error)</code> (wraps <code>amqp091-go</code>)</li>
-<li>[ ] <code>POST /submissions</code> handler: after the <code>INSERT</code>, publish <code>{submissionId, problemId}</code>, respond right away — remove the direct runner call</li>
-<li>[ ] <code>cmd/worker/main.go</code>: connect to the queue, consume loop, for each message: load submission → <code>UPDATE status='RUNNING'</code> → call the runner → <code>UPDATE</code> verdict → <code>ch.Ack</code></li>
-<li>[ ] Handle bad messages / missing submissions → <code>Nack</code> (no retry/DLQ yet — that's Phase 4)</li>
+<li>[x] <code>internal/queue</code>: <code>Publisher.Publish(ctx, msg)</code> and <code>Consumer.Consume(handler func(msg) error)</code> (wraps <code>amqp091-go</code>)</li>
+<li>[x] <code>POST /submissions</code> handler: after the <code>INSERT</code>, publish <code>{submissionId, problemId}</code>, respond right away — remove the direct runner call</li>
+<li>[x] <code>cmd/worker/main.go</code>: connect to the queue, consume loop, for each message: load submission → <code>UPDATE status='RUNNING'</code> → call the runner → <code>UPDATE</code> verdict → <code>ch.Ack</code></li>
+<li>[x] Handle bad messages / missing submissions → <code>Nack</code> (no retry/DLQ yet — that's Phase 4)</li>
 </ul>
 
 <p><strong>Go concepts:</strong> a goroutine for the consume loop, channels if you need an internal queue, <code>defer conn.Close()</code>, JSON (de)serializing messages, running 3 independent processes (<code>api</code>, <code>worker</code>, <code>runner</code>).</p>
@@ -314,8 +328,8 @@ docker compose logs worker   # shows "received job", "verdict: PASSED"
 </code></pre>
 </div>
 
-<div class="phase">
-<h2><span class="badge">Phase 4</span>Reliability</h2>
+<div class="phase done">
+<h2><span class="badge done">Phase 4 ✓</span>Reliability</h2>
 
 <p><strong>Goal:</strong> The system doesn't lose submissions when the worker crashes, doesn't double-process, and shuts down cleanly.</p>
 
@@ -332,11 +346,11 @@ docker compose logs worker   # shows "received job", "verdict: PASSED"
 
 <p><strong>Tasks:</strong></p>
 <ul>
-<li>[ ] Add a <code>retry_count</code> column to the submissions table (new migration)</li>
-<li>[ ] Worker: when the runner call fails for infrastructure reasons (not a code-test failure) → increment <code>retry_count</code>, requeue (Nack with requeue=true) if <code>retry_count &lt; max</code>, otherwise route to the DLQ</li>
-<li>[ ] Configure a DLQ in RabbitMQ (separate exchange + queue, <code>x-dead-letter-exchange</code> on the main queue)</li>
-<li>[ ] Idempotency check: at the start of the consumer, if the submission is already <code>PASSED</code>/<code>FAILED</code>/<code>ERROR</code> → ack immediately, don't reprocess</li>
-<li>[ ] <code>signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)</code> in <code>cmd/worker/main.go</code>, use this context throughout the consume loop + <code>sync.WaitGroup</code> to wait for in-flight jobs</li>
+<li>[x] Add a <code>retry_count</code> column to the submissions table (new migration)</li>
+<li>[x] Worker: when the runner call fails for infrastructure reasons (not a code-test failure) → increment <code>retry_count</code>, requeue (Nack with requeue=true) if <code>retry_count &lt; max</code>, otherwise route to the DLQ</li>
+<li>[x] Configure a DLQ in RabbitMQ (separate exchange + queue, <code>x-dead-letter-exchange</code> on the main queue)</li>
+<li>[x] Idempotency check: at the start of the consumer, if the submission is already <code>PASSED</code>/<code>FAILED</code>/<code>ERROR</code> → ack immediately, don't reprocess</li>
+<li>[x] <code>signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)</code> in <code>cmd/worker/main.go</code>, use this context throughout the consume loop + <code>sync.WaitGroup</code> to wait for in-flight jobs</li>
 </ul>
 
 <p><strong>Go concepts:</strong> serious <code>context</code> cancellation propagation, <code>signal.NotifyContext</code>, <code>sync.WaitGroup</code>, backoff (hand-written, simple: <code>time.Sleep(time.Duration(retryCount) * time.Second)</code> — no dedicated backoff lib yet, YAGNI), thinking in terms of "at-least-once delivery".</p>
