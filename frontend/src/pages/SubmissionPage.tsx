@@ -12,9 +12,29 @@ export default function SubmissionPage() {
   useEffect(() => {
     if (!id) return;
 
-    getSubmission(id)
-      .then(setSubmission)
-      .catch((err) => setError(err.message));
+    let cancelled = false;
+
+    function poll() {
+      getSubmission(id!)
+        .then((result) => {
+          if (cancelled) return;
+          setSubmission(result);
+          if (result.status === "PENDING" || result.status === "RUNNING") {
+            timer = setTimeout(poll, 1000);
+          }
+        })
+        .catch((err) => {
+          if (!cancelled) setError(err.message);
+        });
+    }
+
+    let timer: ReturnType<typeof setTimeout>;
+    poll();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [id]);
 
   if (error) return <p>{error}</p>;

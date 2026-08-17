@@ -9,25 +9,25 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/sorenhoang/go-judge/internal/problem"
-	"github.com/sorenhoang/go-judge/internal/runnerclient"
+	"github.com/sorenhoang/go-judge/internal/queue"
 	"github.com/sorenhoang/go-judge/internal/submission"
 )
 
 type SubmissionHandler struct {
 	submissionRepo submission.Repository
 	problemRepo    problem.Repository
-	judgeRunner    *runnerclient.Client
+	publisher      *queue.Publisher
 }
 
 func NewSubmissionHandler(
 	submissionRepo submission.Repository,
 	problemRepo problem.Repository,
-	judgeRunner *runnerclient.Client,
+	publisher *queue.Publisher,
 ) SubmissionHandler {
 	return SubmissionHandler{
 		submissionRepo: submissionRepo,
 		problemRepo:    problemRepo,
-		judgeRunner:    judgeRunner,
+		publisher:      publisher,
 	}
 }
 
@@ -58,8 +58,7 @@ func (h SubmissionHandler) createSubmission(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	prob, err := h.problemRepo.Get(r.Context(), req.ProblemID)
-	if err != nil {
+	if _, err := h.problemRepo.Get(r.Context(), req.ProblemID); err != nil {
 		if errors.Is(err, problem.ErrNotFound) {
 			http.Error(w, "problemId does not exist", http.StatusBadRequest)
 			return
@@ -80,27 +79,17 @@ func (h SubmissionHandler) createSubmission(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	result, err := h.judgeRunner.Run(r.Context(), req.Code, prob.TestCode)
-	if err != nil {
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	if err := h.submissionRepo.UpdateResult(
-		r.Context(),
-		s.ID,
-		result.Verdict,
-		result.Output,
-		result.TotalTests,
-		result.PassedTests,
-	); err != nil {
+	if err := h.publisher.Publish(r.Context(), queue.SubmissionCreated{
+		SubmissionID: s.ID,
+		ProblemID:    s.ProblemID,
+	}); err != nil {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	writeJSON(w, http.StatusCreated, createSubmissionResponse{
 		SubmissionID: s.ID,
-		Status:       result.Verdict,
+		Status:       s.Status,
 	})
 }
 

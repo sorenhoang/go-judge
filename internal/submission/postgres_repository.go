@@ -10,6 +10,17 @@ type postgresRepository struct {
 	db *sql.DB
 }
 
+// UpdateStatus implements [Repository].
+func (r postgresRepository) UpdateStatus(ctx context.Context, id string, status Status) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE submissions
+		SET status = $1, updated_at = NOW()
+		WHERE id = $2
+	`, status, id)
+
+	return err
+}
+
 // UpdateResult implements [Repository].
 func (r postgresRepository) UpdateResult(ctx context.Context, id string, status Status, output string, totalTests int, passedTests int) error {
 	_, err := r.db.ExecContext(ctx, `

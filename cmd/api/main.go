@@ -8,10 +8,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/sorenhoang/go-judge/internal/config"
 	"github.com/sorenhoang/go-judge/internal/httpapi"
 	"github.com/sorenhoang/go-judge/internal/problem"
-	"github.com/sorenhoang/go-judge/internal/runnerclient"
+	"github.com/sorenhoang/go-judge/internal/queue"
 	"github.com/sorenhoang/go-judge/internal/submission"
 )
 
@@ -41,14 +42,20 @@ func main() {
 
 	problemRepo := problem.NewPostgresRepository(db)
 	submissionRepo := submission.NewPostgresRepository(db)
-	runnerClient, closeRunner, err := runnerclient.Dial(cfg.RunnerAddr)
+
+	amqpConn, err := amqp.Dial(cfg.RabbitMQURL)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer closeRunner()
+	defer amqpConn.Close()
+
+	publisher, err := queue.NewPublisher(amqpConn)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	problemHandler := httpapi.NewProblemHandler(problemRepo)
-	submissionHandler := httpapi.NewSubmissionHandler(submissionRepo, problemRepo, runnerClient)
+	submissionHandler := httpapi.NewSubmissionHandler(submissionRepo, problemRepo, publisher)
 
 	problemHandler.RegisterRoutes(r)
 	submissionHandler.RegisterRoutes(r)
