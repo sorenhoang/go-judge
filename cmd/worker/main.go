@@ -53,9 +53,6 @@ func isRetryableRunnerError(err error) bool {
 
 func planJobResult(sub submission.Submission, err error, maxRetries int) queue.HandlerResult {
 	if err == nil {
-		if isTerminalStatus(sub.Status) {
-			return queue.Ack
-		}
 		return queue.Ack
 	}
 
@@ -114,8 +111,8 @@ func handleJob(subRepo submission.Repository, probRepo problem.Repository, runne
 			}
 
 			sub.RetryCount++
-			result := planJobResult(sub, err, maxRetries)
-			if result == queue.Retry {
+			retryDecision := planJobResult(sub, err, maxRetries)
+			if retryDecision == queue.Retry {
 				log.Printf("submission %s retry %d/%d after runner error: %v", msg.SubmissionID, sub.RetryCount, maxRetries, err)
 				sleepWithContext(ctx, time.Duration(sub.RetryCount)*time.Second)
 				return queue.Retry
@@ -139,6 +136,19 @@ func handleJob(subRepo submission.Repository, probRepo problem.Repository, runne
 		log.Printf("submission %s verdict: %s", msg.SubmissionID, result.Verdict)
 
 		return queue.Ack
+	}
+}
+
+func trackJob(wg *sync.WaitGroup, inFlight *int64, handler func(context.Context, queue.SubmissionCreated) queue.HandlerResult) func(context.Context, queue.SubmissionCreated) queue.HandlerResult {
+	return func(ctx context.Context, msg queue.SubmissionCreated) queue.HandlerResult {
+		wg.Add(1)
+		atomic.AddInt64(inFlight, 1)
+		defer func() {
+			atomic.AddInt64(inFlight, -1)
+			wg.Done()
+		}()
+
+		return handler(ctx, msg)
 	}
 }
 
@@ -196,16 +206,7 @@ func main() {
 	var inFlight int64
 	handler := handleJob(submissionRepo, problemRepo, runnerClient)
 
-	if err := consumer.Consume(ctx, func(_ context.Context, msg queue.SubmissionCreated) queue.HandlerResult {
-		wg.Add(1)
-		atomic.AddInt64(&inFlight, 1)
-		defer func() {
-			atomic.AddInt64(&inFlight, -1)
-			wg.Done()
-		}()
-
-		return handler(context.Background(), msg)
-	}); err != nil {
+	if err := consumer.Consume(ctx, trackJob(&wg, &inFlight, handler)); err != nil {
 		log.Fatal(err)
 	}
 
