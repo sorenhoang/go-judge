@@ -32,6 +32,16 @@ func (r postgresRepository) UpdateResult(ctx context.Context, id string, status 
 	return err
 }
 
+func (r postgresRepository) IncrementRetryCount(ctx context.Context, id string) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE submissions
+		SET retry_count = retry_count + 1, updated_at = NOW()
+		WHERE id = $1
+	`, id)
+
+	return err
+}
+
 func NewPostgresRepository(db *sql.DB) Repository {
 	return postgresRepository{db: db}
 }
@@ -48,7 +58,7 @@ func (r postgresRepository) Create(ctx context.Context, s Submission) error {
 func (r postgresRepository) GetByID(ctx context.Context, id string) (Submission, error) {
 	var s Submission
 	err := r.db.QueryRowContext(ctx, `
-		SELECT id, problem_id, code, status, output, total_tests, passed_tests, created_at, updated_at
+		SELECT id, problem_id, code, status, output, total_tests, passed_tests, retry_count, created_at, updated_at
 		FROM submissions
 		WHERE id = $1
 	`, id).Scan(
@@ -59,6 +69,7 @@ func (r postgresRepository) GetByID(ctx context.Context, id string) (Submission,
 		&s.Output,
 		&s.TotalTests,
 		&s.PassedTests,
+		&s.RetryCount,
 		&s.CreatedAt,
 		&s.UpdatedAt,
 	)

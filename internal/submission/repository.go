@@ -7,4 +7,5 @@ type Repository interface {
 	GetByID(ctx context.Context, id string) (Submission, error)
 	UpdateStatus(ctx context.Context, id string, status Status) error
 	UpdateResult(ctx context.Context, id string, status Status, output string, totalTests int, passedTests int) error
+	IncrementRetryCount(ctx context.Context, id string) error
 }

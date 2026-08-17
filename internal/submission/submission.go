@@ -25,6 +25,7 @@ type Submission struct {
 	Output      *string   `json:"output"`
 	TotalTests  int       `json:"total_tests"`
 	PassedTests int       `json:"passed_tests"`
+	RetryCount  int       `json:"retry_count"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
