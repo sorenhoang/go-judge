@@ -39,7 +39,7 @@ Primary learning language: Go (from syntax to backend architecture).
 <tr><td>2 — Code Runner (gRPC)</td><td>✅ Done</td></tr>
 <tr><td>3 — RabbitMQ + Judge Worker</td><td>✅ Done</td></tr>
 <tr><td>4 — Reliability (retry, DLQ, idempotency, graceful shutdown)</td><td>✅ Done</td></tr>
-<tr><td>5 — Docker Sandbox</td><td>⏳ Not started</td></tr>
+<tr><td>5 — Docker Sandbox</td><td>✅ Done</td></tr>
 <tr><td>6 — Realtime Result</td><td>⏳ Not started</td></tr>
 </table>
 
@@ -371,8 +371,8 @@ docker compose start code-runner
 </code></pre>
 </div>
 
-<div class="phase">
-<h2><span class="badge">Phase 5</span>Docker Sandbox for code execution</h2>
+<div class="phase done">
+<h2><span class="badge done">Phase 5 ✓</span>Docker Sandbox for code execution</h2>
 
 <p><strong>Goal:</strong> User code no longer runs directly on the Code Runner's host — it runs in a temporary container with resource limits and no network.</p>
 
@@ -387,10 +387,10 @@ docker compose start code-runner
 
 <p><strong>Tasks:</strong></p>
 <ul>
-<li>[ ] Mount the Docker socket into the <code>code-runner</code> container (or run <code>code-runner</code> outside Docker Compose's network for simplicity — decide based on how complex Docker-in-Docker gets, weigh carefully before doing it)</li>
-<li>[ ] <code>internal/judge.Runner</code> (or the equivalent package under <code>cmd/runner</code>): change from local <code>go test</code> to <code>docker run ...</code> with the resource-limit flags above</li>
-<li>[ ] <code>exec.CommandContext(ctx, "docker", "run", ...)</code> with a timeout context — if exceeded, <code>ctx.Err()</code> → kill the container (use <code>--rm</code> + cancel the context and call <code>cmd.Process.Kill()</code>)</li>
-<li>[ ] Ensure cleanup: container self-removes with <code>--rm</code>, temp dir via <code>defer os.RemoveAll</code></li>
+<li>[x] Mount the Docker socket into the <code>code-runner</code> container (or run <code>code-runner</code> outside Docker Compose's network for simplicity — decide based on how complex Docker-in-Docker gets, weigh carefully before doing it) — turned out to be moot: <code>code-runner</code> runs as a plain host process (only postgres/rabbitmq are containerized), so it talks to the host Docker daemon directly, no socket mount needed</li>
+<li>[x] <code>internal/judge.Runner</code> (or the equivalent package under <code>cmd/runner</code>): change from local <code>go test</code> to <code>docker run ...</code> with the resource-limit flags above</li>
+<li>[x] <code>exec.CommandContext(ctx, "docker", "run", ...)</code> with a timeout context — if exceeded, <code>ctx.Err()</code> → kill the container (use <code>--rm</code> + cancel the context and call <code>cmd.Process.Kill()</code>) — implemented as <code>--rm</code> plus an explicit <code>docker rm -f &lt;name&gt;</code> in a <code>defer</code>, since killing the <code>docker run</code> CLI process on timeout does not kill the container it spawned</li>
+<li>[x] Ensure cleanup: container self-removes with <code>--rm</code>, temp dir via <code>defer os.RemoveAll</code></li>
 </ul>
 
 <p><strong>Go concepts:</strong> still <code>os/exec</code> + <code>context</code>, but now thinking about "process isolation" — resource limits enforced at the OS/container level, not in Go code.</p>

@@ -14,6 +14,15 @@ import (
 	"github.com/sorenhoang/go-judge/internal/submission"
 )
 
+const (
+	sandboxImage       = "golang:1.25" // pick whatever `docker pull` gets you; go.mod directive below is intentionally low so it's not fragile to this
+	sandboxMemoryLimit = "512m"        // 128m OOM-kills the compiler on a from-scratch stdlib build (no cache persists between submissions)
+	sandboxCPULimit    = "0.5"
+	sandboxPidsLimit   = "128"
+	sandboxTmpfsSize   = "512m,exec" // exec: tmpfs is noexec by default, which blocks running the compiled test binary
+	sandboxTimeout     = 30 * time.Second
+)
+
 type Result struct {
 	Verdict     submission.Status
 	Output      string
@@ -35,10 +44,7 @@ func (r Runner) Run(ctx context.Context, code, testCode string) (Result, error) 
 	defer os.RemoveAll(dir)
 
 	files := map[string]string{
-		"go.mod": `module solution
-
-go 1.26
-`,
+		"go.mod":           "module solution\n\ngo 1.21\n", // low on purpose — see gotcha #2
 		"solution.go":      "package solution\n\n" + code + "\n",
 		"solution_test.go": "package solution\n\nimport \"testing\"\n\n" + testCode + "\n",
 	}
@@ -49,11 +55,39 @@ go 1.26
 		}
 	}
 
-	testCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	testCtx, cancel := context.WithTimeout(ctx, sandboxTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(testCtx, "go", "test", "-json", "./...")
-	cmd.Dir = dir
+	containerName := "gojudge-" + filepath.Base(dir)
+
+	args := []string{
+		"run", "--rm",
+		"--name", containerName,
+		"--network", "none",
+		"--memory", sandboxMemoryLimit,
+		"--cpus", sandboxCPULimit,
+		"--pids-limit", sandboxPidsLimit,
+		"--read-only",
+		"--tmpfs", "/tmp:size=" + sandboxTmpfsSize,
+		"-e", "GOCACHE=/tmp/gocache",
+		"-e", "GOTMPDIR=/tmp",
+		"-e", "GOTOOLCHAIN=local",
+		"-v", dir + ":/app",
+		"-w", "/app",
+		sandboxImage,
+		"go", "test", "-json", "./...",
+	}
+
+	cmd := exec.CommandContext(testCtx, "docker", args...)
+
+	// belt-and-suspenders: --rm handles the normal case, this handles the
+	// "CLI got killed by testCtx, container kept running" case. Error is
+	// expected/harmless when the container is already gone.
+	defer func() {
+		killCtx, killCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer killCancel()
+		_ = exec.CommandContext(killCtx, "docker", "rm", "-f", containerName).Run()
+	}()
 
 	output, err := cmd.CombinedOutput()
 	result := parseGoTestOutput(output)
@@ -63,7 +97,7 @@ go 1.26
 	if errors.Is(testCtx.Err(), context.DeadlineExceeded) {
 		result.Verdict = submission.StatusError
 		if result.Output == "" {
-			result.Output = "go test timed out"
+			result.Output = "sandbox timed out"
 		}
 		return result, nil
 	}
@@ -71,7 +105,7 @@ go 1.26
 	if result.TotalTests == 0 {
 		result.Verdict = submission.StatusError
 		if result.Output == "" && err != nil {
-			result.Output = "go test failed: " + err.Error()
+			result.Output = "sandbox failed: " + err.Error()
 		}
 		return result, nil
 	}
