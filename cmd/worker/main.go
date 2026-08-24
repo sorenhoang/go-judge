@@ -24,8 +24,8 @@ import (
 )
 
 const maxRetries = 3
-const submissionTimeout = 15 * time.Second
-const shutdownTimeout = 20 * time.Second
+const submissionTimeout = 45 * time.Second // headroom above judge.sandboxTimeout (30s) for a from-scratch Docker sandbox compile
+const shutdownTimeout = 50 * time.Second
 
 type runner interface {
 	Run(ctx context.Context, code string, testCode string) (runnerclient.Result, error)

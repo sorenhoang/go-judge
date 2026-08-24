@@ -1,6 +1,6 @@
 import type {CreateSubmissionResponse, Problem, Submission} from "./types";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
 
 export async function listProblems(): Promise<Problem[]> {
     const response = await fetch(`${API_BASE_URL}/problems`);
@@ -30,4 +30,8 @@ export async function getSubmission(submissionId: string): Promise<Submission> {
     const response = await fetch(`${API_BASE_URL}/submissions/${submissionId}`);
     if(!response.ok) throw new Error(`Failed to fetch submission: ${response.statusText}`);
     return response.json();
+}
+
+export function submissionStreamUrl(submissionId: string): string {
+    return `${API_BASE_URL}/submissions/${submissionId}/stream`;
 }

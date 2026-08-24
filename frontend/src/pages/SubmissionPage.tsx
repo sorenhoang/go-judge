@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { getSubmission } from "../api";
+import { submissionStreamUrl } from "../api";
 import type { Submission } from "../types";
+
+function isTerminal(status: Submission["status"]): boolean {
+  return status !== "PENDING" && status !== "RUNNING";
+}
 
 export default function SubmissionPage() {
   const { id } = useParams();
@@ -12,29 +16,22 @@ export default function SubmissionPage() {
   useEffect(() => {
     if (!id) return;
 
-    let cancelled = false;
+    const es = new EventSource(submissionStreamUrl(id));
 
-    function poll() {
-      getSubmission(id!)
-        .then((result) => {
-          if (cancelled) return;
-          setSubmission(result);
-          if (result.status === "PENDING" || result.status === "RUNNING") {
-            timer = setTimeout(poll, 1000);
-          }
-        })
-        .catch((err) => {
-          if (!cancelled) setError(err.message);
-        });
-    }
-
-    let timer: ReturnType<typeof setTimeout>;
-    poll();
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
+    es.onmessage = (event) => {
+      const result: Submission = JSON.parse(event.data);
+      setSubmission(result);
+      if (isTerminal(result.status)) {
+        es.close();
+      }
     };
+
+    es.onerror = () => {
+      setError("Lost connection to server");
+      es.close();
+    };
+
+    return () => es.close();
   }, [id]);
 
   if (error) return <p>{error}</p>;

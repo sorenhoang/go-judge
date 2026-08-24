@@ -40,7 +40,7 @@ Primary learning language: Go (from syntax to backend architecture).
 <tr><td>3 — RabbitMQ + Judge Worker</td><td>✅ Done</td></tr>
 <tr><td>4 — Reliability (retry, DLQ, idempotency, graceful shutdown)</td><td>✅ Done</td></tr>
 <tr><td>5 — Docker Sandbox</td><td>✅ Done</td></tr>
-<tr><td>6 — Realtime Result</td><td>⏳ Not started</td></tr>
+<tr><td>6 — Realtime Result</td><td>✅ Done</td></tr>
 </table>
 
 <h2>0. How we'll work together</h2>
@@ -408,8 +408,8 @@ docker ps   # after the submission finishes, no leftover containers for that sub
 </code></pre>
 </div>
 
-<div class="phase">
-<h2><span class="badge">Phase 6</span>Realtime Result</h2>
+<div class="phase done">
+<h2><span class="badge done">Phase 6 ✓</span>Realtime Result</h2>
 
 <p><strong>Goal:</strong> Replace crude polling with a better frontend experience.</p>
 
@@ -419,15 +419,17 @@ docker ps   # after the submission finishes, no leftover containers for that sub
 <ol>
 <li><strong>Polling</strong> (already exists from Phase 1.5) — keep as-is, this is the baseline that always works even if the steps below break.</li>
 <li><strong>SSE</strong>: endpoint <code>GET /submissions/{id}/stream</code> — server holds the connection open, pushes an event when status changes (subscribe via Postgres <code>LISTEN/NOTIFY</code>, or simpler: the worker calls back into an in-memory pub/sub in the API after updating — start with the simpler option).</li>
-<li><strong>WebSocket</strong> (optional, only if you want to try it) — not required for this project's learning goals.</li>
+<li><strong>WebSocket</strong> (optional, only if you want to try it) — not required for this project's learning goals, skipped.</li>
 </ol>
 
 <p><strong>Tasks (SSE):</strong></p>
 <ul>
-<li>[ ] Handler <code>GET /submissions/{id}/stream</code>: set SSE headers (<code>Content-Type: text/event-stream</code>), loop sending events, use <code>ctx.Done()</code> to exit when the client disconnects</li>
-<li>[ ] Notification mechanism: simplest first — have the API itself poll the DB every 500ms inside the SSE handler and diff the status (do NOT need Postgres LISTEN/NOTIFY for the first version — YAGNI, only upgrade if polling-inside-SSE is actually a bottleneck)</li>
-<li>[ ] Frontend: use <code>EventSource</code> instead of <code>setInterval</code> polling on the <code>/submissions/:id</code> page</li>
+<li>[x] Handler <code>GET /submissions/{id}/stream</code>: set SSE headers (<code>Content-Type: text/event-stream</code>), loop sending events, use <code>ctx.Done()</code> to exit when the client disconnects</li>
+<li>[x] Notification mechanism: simplest first — have the API itself poll the DB every 500ms inside the SSE handler and diff the status (do NOT need Postgres LISTEN/NOTIFY for the first version — YAGNI, only upgrade if polling-inside-SSE is actually a bottleneck)</li>
+<li>[x] Frontend: use <code>EventSource</code> instead of <code>setInterval</code> polling on the <code>/submissions/:id</code> page</li>
 </ul>
+
+<p><strong>Note found during implementation:</strong> the browser's <code>EventSource</code> auto-reconnects on any dropped connection by default, so the server can't just close the stream after the final event — the <strong>client</strong> must call <code>es.close()</code> itself once it sees a terminal status, or a finished submission would reconnect forever. Also surfaced a Phase 4 regression while testing end-to-end: <code>cmd/worker</code>'s <code>submissionTimeout</code> was still <code>15s</code> (sized for Phase 4's local <code>go test</code>), shorter than Phase 5's 30s sandbox timeout — every submission was retry-looping into <code>ERROR</code>. Fixed to <code>45s</code> (and <code>shutdownTimeout</code> to <code>50s</code> alongside it).</p>
 
 <p><strong>Go concepts:</strong> <code>http.Flusher</code>, streaming responses, tracking client disconnects via <code>context</code> (<code>r.Context().Done()</code>), the deliberate trade-off between "simpler" and "architecturally correct" — here we choose simple on purpose.</p>
 
