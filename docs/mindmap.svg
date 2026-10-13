@@ -1,0 +1,95 @@
+<svg width="680" height="720" viewBox="0 0 680 720" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>Mindmap của repo go-judge</title>
+<desc>Sơ đồ tư duy toả từ nút trung tâm go-judge ra 7 nhóm: Backend Go, Data layer, Communication, Reliability, Sandbox, Frontend, Docs.</desc>
+
+<rect x="0" y="0" width="680" height="720" fill="#030303"/>
+
+<path d="M150,360 C185,360 185,60 220,60" fill="none" stroke="#7F77DD" stroke-width="1.5" opacity="0.9"/>
+<path d="M150,360 C185,360 185,160 220,160" fill="none" stroke="#1D9E75" stroke-width="1.5" opacity="0.9"/>
+<path d="M150,360 C185,360 185,260 220,260" fill="none" stroke="#D85A30" stroke-width="1.5" opacity="0.9"/>
+<path d="M150,360 C185,360 185,360 220,360" fill="none" stroke="#D4537E" stroke-width="1.5" opacity="0.9"/>
+<path d="M150,360 C185,360 185,460 220,460" fill="none" stroke="#378ADD" stroke-width="1.5" opacity="0.9"/>
+<path d="M150,360 C185,360 185,560 220,560" fill="none" stroke="#639922" stroke-width="1.5" opacity="0.9"/>
+<path d="M150,360 C185,360 185,660 220,660" fill="none" stroke="#BA7517" stroke-width="1.5" opacity="0.9"/>
+
+<path d="M380,60 C400,60 400,44 415,44" fill="none" stroke="#7F77DD" stroke-width="1" opacity="0.8"/>
+<path d="M380,60 C400,60 400,60 415,60" fill="none" stroke="#7F77DD" stroke-width="1" opacity="0.8"/>
+<path d="M380,60 C400,60 400,76 415,76" fill="none" stroke="#7F77DD" stroke-width="1" opacity="0.8"/>
+
+<path d="M380,160 C400,160 400,150 415,150" fill="none" stroke="#1D9E75" stroke-width="1" opacity="0.8"/>
+<path d="M380,160 C400,160 400,170 415,170" fill="none" stroke="#1D9E75" stroke-width="1" opacity="0.8"/>
+
+<path d="M380,260 C400,260 400,244 415,244" fill="none" stroke="#D85A30" stroke-width="1" opacity="0.8"/>
+<path d="M380,260 C400,260 400,260 415,260" fill="none" stroke="#D85A30" stroke-width="1" opacity="0.8"/>
+<path d="M380,260 C400,260 400,276 415,276" fill="none" stroke="#D85A30" stroke-width="1" opacity="0.8"/>
+
+<path d="M380,360 C400,360 400,344 415,344" fill="none" stroke="#D4537E" stroke-width="1" opacity="0.8"/>
+<path d="M380,360 C400,360 400,360 415,360" fill="none" stroke="#D4537E" stroke-width="1" opacity="0.8"/>
+<path d="M380,360 C400,360 400,376 415,376" fill="none" stroke="#D4537E" stroke-width="1" opacity="0.8"/>
+
+<path d="M380,460 C400,460 400,450 415,450" fill="none" stroke="#378ADD" stroke-width="1" opacity="0.8"/>
+<path d="M380,460 C400,460 400,470 415,470" fill="none" stroke="#378ADD" stroke-width="1" opacity="0.8"/>
+
+<path d="M380,560 C400,560 400,550 415,550" fill="none" stroke="#639922" stroke-width="1" opacity="0.8"/>
+<path d="M380,560 C400,560 400,570 415,570" fill="none" stroke="#639922" stroke-width="1" opacity="0.8"/>
+
+<path d="M380,660 C400,660 400,650 415,650" fill="none" stroke="#BA7517" stroke-width="1" opacity="0.8"/>
+<path d="M380,660 C400,660 400,670 415,670" fill="none" stroke="#BA7517" stroke-width="1" opacity="0.8"/>
+
+<g>
+<rect x="20" y="338" width="130" height="44" rx="22" fill="#2C2C2A" stroke="#5F5E5A" stroke-width="0.5"/>
+<text x="85" y="360" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="14" font-weight="500" fill="#F1EFE8">go-judge</text>
+</g>
+
+<g>
+<rect x="220" y="40" width="160" height="40" rx="20" fill="#26215C" stroke="#7F77DD" stroke-width="0.5"/>
+<text x="300" y="60" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="14" font-weight="500" fill="#EEEDFE">Backend (Go)</text>
+</g>
+<text font-family="sans-serif" font-size="12" fill="#e8e8e8" x="415" y="44" dominant-baseline="central">cmd/api</text>
+<text font-family="sans-serif" font-size="12" fill="#e8e8e8" x="415" y="60" dominant-baseline="central">cmd/worker</text>
+<text font-family="sans-serif" font-size="12" fill="#e8e8e8" x="415" y="76" dominant-baseline="central">cmd/runner</text>
+
+<g>
+<rect x="220" y="140" width="160" height="40" rx="20" fill="#04342C" stroke="#1D9E75" stroke-width="0.5"/>
+<text x="300" y="160" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="14" font-weight="500" fill="#E1F5EE">Data layer</text>
+</g>
+<text font-family="sans-serif" font-size="12" fill="#e8e8e8" x="415" y="150" dominant-baseline="central">Postgres</text>
+<text font-family="sans-serif" font-size="12" fill="#e8e8e8" x="415" y="170" dominant-baseline="central">RabbitMQ</text>
+
+<g>
+<rect x="220" y="240" width="160" height="40" rx="20" fill="#4A1B0C" stroke="#D85A30" stroke-width="0.5"/>
+<text x="300" y="260" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="14" font-weight="500" fill="#FAECE7">Communication</text>
+</g>
+<text font-family="sans-serif" font-size="12" fill="#e8e8e8" x="415" y="244" dominant-baseline="central">REST API</text>
+<text font-family="sans-serif" font-size="12" fill="#e8e8e8" x="415" y="260" dominant-baseline="central">gRPC</text>
+<text font-family="sans-serif" font-size="12" fill="#e8e8e8" x="415" y="276" dominant-baseline="central">SSE stream</text>
+
+<g>
+<rect x="220" y="340" width="160" height="40" rx="20" fill="#4B1528" stroke="#D4537E" stroke-width="0.5"/>
+<text x="300" y="360" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="14" font-weight="500" fill="#FBEAF0">Reliability</text>
+</g>
+<text font-family="sans-serif" font-size="12" fill="#e8e8e8" x="415" y="344" dominant-baseline="central">Retry + backoff</text>
+<text font-family="sans-serif" font-size="12" fill="#e8e8e8" x="415" y="360" dominant-baseline="central">Dead-letter queue</text>
+<text font-family="sans-serif" font-size="12" fill="#e8e8e8" x="415" y="376" dominant-baseline="central">Graceful shutdown</text>
+
+<g>
+<rect x="220" y="440" width="160" height="40" rx="20" fill="#042C53" stroke="#378ADD" stroke-width="0.5"/>
+<text x="300" y="460" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="14" font-weight="500" fill="#E6F1FB">Sandbox</text>
+</g>
+<text font-family="sans-serif" font-size="12" fill="#e8e8e8" x="415" y="450" dominant-baseline="central">Docker container</text>
+<text font-family="sans-serif" font-size="12" fill="#e8e8e8" x="415" y="470" dominant-baseline="central">Resource limits</text>
+
+<g>
+<rect x="220" y="540" width="160" height="40" rx="20" fill="#173404" stroke="#639922" stroke-width="0.5"/>
+<text x="300" y="560" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="14" font-weight="500" fill="#EAF3DE">Frontend</text>
+</g>
+<text font-family="sans-serif" font-size="12" fill="#e8e8e8" x="415" y="550" dominant-baseline="central">React + Vite</text>
+<text font-family="sans-serif" font-size="12" fill="#e8e8e8" x="415" y="570" dominant-baseline="central">Live SSE updates</text>
+
+<g>
+<rect x="220" y="640" width="160" height="40" rx="20" fill="#412402" stroke="#BA7517" stroke-width="0.5"/>
+<text x="300" y="660" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="14" font-weight="500" fill="#FAEEDA">Docs</text>
+</g>
+<text font-family="sans-serif" font-size="12" fill="#e8e8e8" x="415" y="650" dominant-baseline="central">Idea doc</text>
+<text font-family="sans-serif" font-size="12" fill="#e8e8e8" x="415" y="670" dominant-baseline="central">Implementation plan</text>
+</svg>

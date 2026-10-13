@@ -4,6 +4,8 @@ A local LeetCode-style judge system built with Go to practice Go syntax, REST AP
 
 You write Go code against a problem, submit it, and get back a real verdict (`PASSED` / `FAILED` / `ERROR`) from actually running `go test` — inside an isolated, resource-limited Docker container, processed asynchronously, streamed to the browser live as it happens.
 
+![go-judge mindmap](docs/mindmap.svg)
+
 ## Status
 
 All 6 planned phases are done. See the [implementation plan](docs/go-judge-implementation-plan.html) for the full phase-by-phase breakdown (goals, tasks, acceptance criteria).
