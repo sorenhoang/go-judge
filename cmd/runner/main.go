@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net"
 
@@ -20,7 +21,13 @@ type server struct {
 func (s server) RunTests(ctx context.Context, req *coderunnerpb.RunTestsRequest) (*coderunnerpb.RunTestsResponse, error) {
 	result, err := s.runner.Run(ctx, req.Code, req.TestCode)
 
-	if err != nil {
+	switch {
+	case err == nil:
+	case errors.Is(err, judge.ErrSandboxUnavailable):
+		return nil, status.Errorf(codes.Unavailable, "%v", err)
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return nil, status.FromContextError(err).Err()
+	default:
 		return nil, status.Errorf(codes.Internal, "failed to run tests: %v", err)
 	}
 
