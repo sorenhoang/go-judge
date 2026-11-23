@@ -157,6 +157,8 @@ func handleJob(subRepo submission.Repository, probRepo problem.Repository, runne
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// once shutdown starts, a second Ctrl-C/SIGTERM kills the process right away
+	context.AfterFunc(ctx, stop)
 
 	cfg, err := config.Load()
 	if err != nil {

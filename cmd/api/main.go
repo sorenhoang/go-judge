@@ -30,6 +30,8 @@ const shutdownGrace = 5 * time.Second
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// once shutdown starts, a second Ctrl-C/SIGTERM kills the process right away
+	context.AfterFunc(ctx, stop)
 
 	r := chi.NewRouter()
 
