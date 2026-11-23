@@ -12,34 +12,38 @@ type postgresRepository struct {
 	db *sql.DB
 }
 
-// UpdateStatus implements [Repository].
-func (r postgresRepository) UpdateStatus(ctx context.Context, id string, status Status) error {
-	_, err := r.db.ExecContext(ctx, `
+func (r postgresRepository) Claim(ctx context.Context, id string, lease time.Duration) (bool, error) {
+	// updated_at is the lease: a RUNNING row can only be taken over once its
+	// worker hasn't touched it for lease (it died or hung)
+	res, err := r.db.ExecContext(ctx, `
 		UPDATE submissions
 		SET status = $1, updated_at = NOW()
 		WHERE id = $2
-	`, status, id)
-
-	return err
+			AND (status = $3 OR (status = $1 AND updated_at < NOW() - make_interval(secs => $4)))
+	`, StatusRunning, id, StatusPending, lease.Seconds())
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
 }
 
-// UpdateResult implements [Repository].
 func (r postgresRepository) UpdateResult(ctx context.Context, id string, status Status, output string, totalTests int, passedTests int) error {
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE submissions
 		SET status = $1, output = $2, total_tests = $3, passed_tests = $4, updated_at = NOW()
-		WHERE id = $5
-	`, status, output, totalTests, passedTests, id)
+		WHERE id = $5 AND status IN ($6, $7)
+	`, status, output, totalTests, passedTests, id, StatusPending, StatusRunning)
 
 	return err
 }
 
-func (r postgresRepository) IncrementRetryCount(ctx context.Context, id string) error {
+func (r postgresRepository) MarkForRetry(ctx context.Context, id string) error {
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE submissions
-		SET retry_count = retry_count + 1, updated_at = NOW()
-		WHERE id = $1
-	`, id)
+		SET status = $1, retry_count = retry_count + 1, updated_at = NOW()
+		WHERE id = $2 AND status IN ($1, $3)
+	`, StatusPending, id, StatusRunning)
 
 	return err
 }

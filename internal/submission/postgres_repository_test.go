@@ -91,3 +91,85 @@ func TestRequeueStaleAndFailAbandoned(t *testing.T) {
 		t.Fatalf("ancient-pending = %s %v, want ERROR with a message", s.Status, s.Output)
 	}
 }
+
+func TestClaimIsExclusiveUntilTheLeaseExpires(t *testing.T) {
+	db := testDB(t)
+	repo := NewPostgresRepository(db)
+	ctx := context.Background()
+	lease := time.Minute
+
+	insertAged(t, db, "pending", StatusPending, 0, 0)
+	insertAged(t, db, "abandoned-running", StatusRunning, 5*time.Minute, 5*time.Minute)
+	insertAged(t, db, "passed", StatusPassed, 0, 0)
+
+	claim := func(id string) bool {
+		t.Helper()
+		ok, err := repo.Claim(ctx, id, lease)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ok
+	}
+
+	if !claim("pending") {
+		t.Fatal("first claim of a PENDING submission failed")
+	}
+	if claim("pending") {
+		t.Fatal("second worker claimed a submission whose lease is still held")
+	}
+	if !claim("abandoned-running") {
+		t.Fatal("couldn't claim a RUNNING submission whose lease expired (its worker died)")
+	}
+	if claim("passed") {
+		t.Fatal("claimed a finished submission")
+	}
+}
+
+func TestUpdateResultDoesNotOverwriteAFinishedSubmission(t *testing.T) {
+	db := testDB(t)
+	repo := NewPostgresRepository(db)
+	ctx := context.Background()
+
+	insertAged(t, db, "s", StatusRunning, 0, 0)
+	if err := repo.UpdateResult(ctx, "s", StatusPassed, "first", 1, 1); err != nil {
+		t.Fatal(err)
+	}
+	// a duplicate run finishing later must not replace the first verdict
+	if err := repo.UpdateResult(ctx, "s", StatusError, "second", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := repo.GetByID(ctx, "s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Status != StatusPassed || s.Output == nil || *s.Output != "first" {
+		t.Fatalf("got %s %v, want the first result PASSED/first", s.Status, s.Output)
+	}
+}
+
+func TestMarkForRetryReleasesTheClaim(t *testing.T) {
+	db := testDB(t)
+	repo := NewPostgresRepository(db)
+	ctx := context.Background()
+
+	insertAged(t, db, "s", StatusPending, 0, 0)
+	if ok, err := repo.Claim(ctx, "s", time.Minute); err != nil || !ok {
+		t.Fatalf("claim: %v %v", ok, err)
+	}
+	if err := repo.MarkForRetry(ctx, "s"); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := repo.GetByID(ctx, "s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Status != StatusPending || s.RetryCount != 1 {
+		t.Fatalf("got %s retry_count=%d, want PENDING retry_count=1", s.Status, s.RetryCount)
+	}
+	// the retried job must not have to wait for the lease to expire
+	if ok, err := repo.Claim(ctx, "s", time.Minute); err != nil || !ok {
+		t.Fatalf("reclaim after MarkForRetry: %v %v", ok, err)
+	}
+}

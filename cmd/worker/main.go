@@ -24,6 +24,11 @@ import (
 const maxRetries = 3
 const submissionTimeout = 45 * time.Second // headroom above judge.sandboxTimeout (30s) so the sandbox's own timeout fires first
 
+// claimLease is how long a claimed submission stays reserved for its worker.
+// Longer than submissionTimeout, so it only expires when that worker died or
+// hung; then another worker may take the job over.
+const claimLease = 60 * time.Second
+
 // retryLater logs and asks the queue to retry; the queue delays the job
 // (growing per attempt) and caps the number of retries.
 func retryLater(format string, args ...any) queue.HandlerResult {
@@ -82,8 +87,14 @@ func handleJob(subRepo submission.Repository, probRepo problem.Repository, runne
 			return queue.Ack
 		}
 
-		if err := subRepo.UpdateStatus(ctx, msg.SubmissionID, submission.StatusRunning); err != nil {
-			return retryLater("submission %s status update failed: %v", msg.SubmissionID, err)
+		claimed, err := subRepo.Claim(ctx, msg.SubmissionID, claimLease)
+		if err != nil {
+			return retryLater("submission %s claim failed: %v", msg.SubmissionID, err)
+		}
+		if !claimed {
+			// a duplicate message: by the time it's retried the other worker has
+			// finished (the job is acked as done) or its lease has expired
+			return retryLater("submission %s is being judged by another worker", msg.SubmissionID)
 		}
 
 		prob, err := probRepo.Get(ctx, msg.ProblemID)
@@ -113,7 +124,7 @@ func handleJob(subRepo submission.Repository, probRepo problem.Repository, runne
 				return queue.DeadLetter
 			}
 
-			if retryErr := subRepo.IncrementRetryCount(ctx, msg.SubmissionID); retryErr != nil {
+			if retryErr := subRepo.MarkForRetry(ctx, msg.SubmissionID); retryErr != nil {
 				return retryLater("submission %s retry_count update failed: %v", msg.SubmissionID, retryErr)
 			}
 
