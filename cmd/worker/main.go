@@ -28,6 +28,14 @@ const submissionTimeout = 45 * time.Second // headroom above judge.sandboxTimeou
 // Postgres or the runner is down. A var so tests can zero it.
 var backoffUnit = time.Second
 
+// retryLater waits before requeueing so a failure that keeps happening (e.g.
+// Postgres down) doesn't spin; the queue's delivery limit caps the total.
+func retryLater(format string, args ...any) queue.HandlerResult {
+	log.Printf(format+", retrying", args...)
+	time.Sleep(backoffUnit)
+	return queue.Retry
+}
+
 type runner interface {
 	Run(ctx context.Context, code string, testCode string) (runnerclient.Result, error)
 }
@@ -70,9 +78,7 @@ func handleJob(subRepo submission.Repository, probRepo problem.Repository, runne
 			return queue.DeadLetter
 		}
 		if err != nil {
-			log.Printf("submission %s lookup failed, retrying: %v", msg.SubmissionID, err)
-			time.Sleep(backoffUnit)
-			return queue.Retry
+			return retryLater("submission %s lookup failed: %v", msg.SubmissionID, err)
 		}
 
 		if sub.Status.IsTerminal() {
@@ -81,23 +87,19 @@ func handleJob(subRepo submission.Repository, probRepo problem.Repository, runne
 		}
 
 		if err := subRepo.UpdateStatus(ctx, msg.SubmissionID, submission.StatusRunning); err != nil {
-			log.Printf("submission %s status update failed: %v", msg.SubmissionID, err)
-			return queue.Retry
+			return retryLater("submission %s status update failed: %v", msg.SubmissionID, err)
 		}
 
 		prob, err := probRepo.Get(ctx, msg.ProblemID)
 		if errors.Is(err, problem.ErrNotFound) {
 			if updateErr := subRepo.UpdateResult(ctx, msg.SubmissionID, submission.StatusError, "problem "+msg.ProblemID+" not found", 0, 0); updateErr != nil {
-				log.Printf("submission %s error update failed: %v", msg.SubmissionID, updateErr)
-				return queue.Retry
+				return retryLater("submission %s error update failed: %v", msg.SubmissionID, updateErr)
 			}
 			log.Printf("problem %s not found for submission %s, dead-lettering", msg.ProblemID, msg.SubmissionID)
 			return queue.DeadLetter
 		}
 		if err != nil {
-			log.Printf("problem %s lookup failed for submission %s, retrying: %v", msg.ProblemID, msg.SubmissionID, err)
-			time.Sleep(backoffUnit)
-			return queue.Retry
+			return retryLater("problem %s lookup failed for submission %s: %v", msg.ProblemID, msg.SubmissionID, err)
 		}
 
 		jobCtx, cancel := context.WithTimeout(ctx, submissionTimeout)
@@ -108,8 +110,7 @@ func handleJob(subRepo submission.Repository, probRepo problem.Repository, runne
 			if !isRetryableRunnerError(err) {
 				output := "runner failed permanently: " + err.Error()
 				if updateErr := subRepo.UpdateResult(ctx, msg.SubmissionID, submission.StatusError, output, 0, 0); updateErr != nil {
-					log.Printf("submission %s permanent error update failed: %v", msg.SubmissionID, updateErr)
-					return queue.Retry
+					return retryLater("submission %s permanent error update failed: %v", msg.SubmissionID, updateErr)
 				}
 
 				log.Printf("submission %s dead-lettered after permanent runner error: %v", msg.SubmissionID, err)
@@ -117,8 +118,7 @@ func handleJob(subRepo submission.Repository, probRepo problem.Repository, runne
 			}
 
 			if retryErr := subRepo.IncrementRetryCount(ctx, msg.SubmissionID); retryErr != nil {
-				log.Printf("submission %s retry_count update failed: %v", msg.SubmissionID, retryErr)
-				return queue.Retry
+				return retryLater("submission %s retry_count update failed: %v", msg.SubmissionID, retryErr)
 			}
 
 			sub.RetryCount++
@@ -131,8 +131,7 @@ func handleJob(subRepo submission.Repository, probRepo problem.Repository, runne
 
 			output := "runner failed after retries: " + err.Error()
 			if updateErr := subRepo.UpdateResult(ctx, msg.SubmissionID, submission.StatusError, output, 0, 0); updateErr != nil {
-				log.Printf("submission %s final error update failed: %v", msg.SubmissionID, updateErr)
-				return queue.Retry
+				return retryLater("submission %s final error update failed: %v", msg.SubmissionID, updateErr)
 			}
 
 			log.Printf("submission %s dead-lettered after %d retries: %v", msg.SubmissionID, sub.RetryCount, err)
@@ -140,8 +139,7 @@ func handleJob(subRepo submission.Repository, probRepo problem.Repository, runne
 		}
 
 		if err := subRepo.UpdateResult(ctx, msg.SubmissionID, result.Verdict, result.Output, result.TotalTests, result.PassedTests); err != nil {
-			log.Printf("submission %s result update failed: %v", msg.SubmissionID, err)
-			return queue.Retry
+			return retryLater("submission %s result update failed: %v", msg.SubmissionID, err)
 		}
 
 		log.Printf("submission %s verdict: %s", msg.SubmissionID, result.Verdict)

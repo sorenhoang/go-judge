@@ -9,10 +9,20 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-const QueueSubmissionCreated = "judge.submission.created"
+// A quorum queue, so the broker itself caps redeliveries (x-delivery-limit).
+// New name because RabbitMQ can't change an existing queue's type: the old
+// classic "judge.submission.created" queue is just abandoned, and the stale
+// submission sweeper re-publishes anything still stuck in it.
+const QueueSubmissionCreated = "judge.submission.created.quorum"
 const ExchangeDeadLetter = "judge.dlx"
 const QueueSubmissionDead = "judge.submission.dead"
 const RoutingKeySubmissionDead = "judge.submission.dead"
+
+// deliveryLimit caps every Retry path (runner and DB errors alike): once a
+// message has been returned this many times the broker dead-letters it.
+// Above the worker's 3 runner attempts, so it only kicks in for failures
+// that keep repeating.
+const deliveryLimit = 10
 
 type HandlerResult int
 
@@ -92,6 +102,8 @@ func declareTopology(ch *amqp.Channel) error {
 	}
 
 	_, err := ch.QueueDeclare(QueueSubmissionCreated, true, false, false, false, amqp.Table{
+		"x-queue-type":              "quorum",
+		"x-delivery-limit":          deliveryLimit,
 		"x-dead-letter-exchange":    ExchangeDeadLetter,
 		"x-dead-letter-routing-key": RoutingKeySubmissionDead,
 	})
