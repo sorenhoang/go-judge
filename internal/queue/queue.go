@@ -3,6 +3,8 @@ package queue
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"log"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -97,6 +99,9 @@ func declareTopology(ch *amqp.Channel) error {
 	return err
 }
 
+// Consume runs handler for each delivery until ctx is cancelled. Cancelling ctx
+// only stops taking new jobs: the in-flight handler gets a context that isn't
+// cancelled, so it runs to completion and is acked instead of aborted mid-run.
 func (c *Consumer) Consume(ctx context.Context, handler func(context.Context, SubmissionCreated) HandlerResult) error {
 	const consumerTag = "go-judge-worker"
 
@@ -105,37 +110,47 @@ func (c *Consumer) Consume(ctx context.Context, handler func(context.Context, Su
 		return err
 	}
 
+	jobCtx := context.WithoutCancel(ctx)
+
 	for {
+		// checked first so a delivery that's ready at the same time doesn't win the select
+		if ctx.Err() != nil {
+			return c.stop(consumerTag, deliveries)
+		}
+
 		select {
 		case <-ctx.Done():
-			if err := c.ch.Cancel(consumerTag, false); err != nil {
-				return err
-			}
-			for d := range deliveries {
-				d.Nack(false, true)
-			}
-			return nil
+			return c.stop(consumerTag, deliveries)
 		case d, ok := <-deliveries:
 			if !ok {
-				return nil
+				return errors.New("delivery channel closed (RabbitMQ connection lost)")
 			}
 
 			var msg SubmissionCreated
 			if err := json.Unmarshal(d.Body, &msg); err != nil {
+				log.Printf("dead-lettering undecodable message: %v: %q", err, d.Body)
 				d.Nack(false, false)
 				continue
 			}
 
-			switch handler(ctx, msg) {
+			switch handler(jobCtx, msg) {
 			case Ack:
 				d.Ack(false)
 			case Retry:
 				d.Nack(false, true)
-			case DeadLetter:
-				d.Nack(false, false)
 			default:
 				d.Nack(false, false)
 			}
 		}
 	}
+}
+
+func (c *Consumer) stop(consumerTag string, deliveries <-chan amqp.Delivery) error {
+	if err := c.ch.Cancel(consumerTag, false); err != nil {
+		return err
+	}
+	for d := range deliveries {
+		d.Nack(false, true)
+	}
+	return nil
 }
