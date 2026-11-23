@@ -24,15 +24,15 @@ import (
 const maxRetries = 3
 const submissionTimeout = 45 * time.Second // headroom above judge.sandboxTimeout (30s) so the sandbox's own timeout fires first
 
-// backoffUnit spaces out retries so a requeued job doesn't hot-loop while
-// Postgres or the runner is down. A var so tests can zero it.
-var backoffUnit = time.Second
+// claimLease is how long a claimed submission stays reserved for its worker.
+// Longer than submissionTimeout, so it only expires when that worker died or
+// hung; then another worker may take the job over.
+const claimLease = 60 * time.Second
 
-// retryLater waits before requeueing so a failure that keeps happening (e.g.
-// Postgres down) doesn't spin; the queue's delivery limit caps the total.
+// retryLater logs and asks the queue to retry; the queue delays the job
+// (growing per attempt) and caps the number of retries.
 func retryLater(format string, args ...any) queue.HandlerResult {
 	log.Printf(format+", retrying", args...)
-	time.Sleep(backoffUnit)
 	return queue.Retry
 }
 
@@ -61,7 +61,8 @@ func planJobResult(sub submission.Submission, err error, maxRetries int) queue.H
 		return queue.Ack
 	}
 
-	if isRetryableRunnerError(err) && sub.RetryCount < maxRetries {
+	// RetryCount counts failed attempts, so this allows maxRetries retries
+	if isRetryableRunnerError(err) && sub.RetryCount <= maxRetries {
 		return queue.Retry
 	}
 
@@ -86,8 +87,14 @@ func handleJob(subRepo submission.Repository, probRepo problem.Repository, runne
 			return queue.Ack
 		}
 
-		if err := subRepo.UpdateStatus(ctx, msg.SubmissionID, submission.StatusRunning); err != nil {
-			return retryLater("submission %s status update failed: %v", msg.SubmissionID, err)
+		claimed, err := subRepo.Claim(ctx, msg.SubmissionID, claimLease)
+		if err != nil {
+			return retryLater("submission %s claim failed: %v", msg.SubmissionID, err)
+		}
+		if !claimed {
+			// a duplicate message: by the time it's retried the other worker has
+			// finished (the job is acked as done) or its lease has expired
+			return retryLater("submission %s is being judged by another worker", msg.SubmissionID)
 		}
 
 		prob, err := probRepo.Get(ctx, msg.ProblemID)
@@ -117,7 +124,7 @@ func handleJob(subRepo submission.Repository, probRepo problem.Repository, runne
 				return queue.DeadLetter
 			}
 
-			if retryErr := subRepo.IncrementRetryCount(ctx, msg.SubmissionID); retryErr != nil {
+			if retryErr := subRepo.MarkForRetry(ctx, msg.SubmissionID); retryErr != nil {
 				return retryLater("submission %s retry_count update failed: %v", msg.SubmissionID, retryErr)
 			}
 
@@ -125,7 +132,6 @@ func handleJob(subRepo submission.Repository, probRepo problem.Repository, runne
 			retryDecision := planJobResult(sub, err, maxRetries)
 			if retryDecision == queue.Retry {
 				log.Printf("submission %s retry %d/%d after runner error: %v", msg.SubmissionID, sub.RetryCount, maxRetries, err)
-				time.Sleep(time.Duration(sub.RetryCount) * backoffUnit)
 				return queue.Retry
 			}
 
@@ -134,7 +140,7 @@ func handleJob(subRepo submission.Repository, probRepo problem.Repository, runne
 				return retryLater("submission %s final error update failed: %v", msg.SubmissionID, updateErr)
 			}
 
-			log.Printf("submission %s dead-lettered after %d retries: %v", msg.SubmissionID, sub.RetryCount, err)
+			log.Printf("submission %s dead-lettered after %d retries: %v", msg.SubmissionID, sub.RetryCount-1, err)
 			return queue.DeadLetter
 		}
 
@@ -151,6 +157,8 @@ func handleJob(subRepo submission.Repository, probRepo problem.Repository, runne
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// once shutdown starts, a second Ctrl-C/SIGTERM kills the process right away
+	context.AfterFunc(ctx, stop)
 
 	cfg, err := config.Load()
 	if err != nil {

@@ -15,7 +15,7 @@ All 6 planned phases are done. See the [implementation plan](docs/go-judge-imple
 | 1 — Monolith Judge (MVP) | Frontend → API → Postgres, runs `go test` synchronously in the API process |
 | 2 — Code Runner (gRPC) | Code execution extracted into its own `code-runner` service |
 | 3 — RabbitMQ + Judge Worker | Judging goes async — API publishes a job and returns `PENDING` immediately |
-| 4 — Reliability | Retry with backoff, dead-letter queue (quorum queue, delivery limit 10), idempotent processing, graceful shutdown of API/worker/runner, a sweeper that republishes lost jobs |
+| 4 — Reliability | Retry with exponential backoff via a TTL retry queue (worker never sleeps), dead-letter queue (quorum queue, max 10 retries), idempotent processing, graceful shutdown of API/worker/runner, a sweeper that republishes lost jobs |
 | 5 — Docker Sandbox | User code runs inside a locked-down container (`--network none`, memory/cpu/pids limits, read-only root and code mount, non-root user, no capabilities, 1MB output cap) instead of directly on the runner's host |
 | 6 — Realtime Result | `GET /submissions/{id}/stream` (SSE) replaces frontend polling |
 

@@ -75,6 +75,8 @@ func serve(ctx context.Context, lis net.Listener, runner testRunner) error {
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// once shutdown starts, a second Ctrl-C/SIGTERM kills the process right away
+	context.AfterFunc(ctx, stop)
 
 	lis, err := net.Listen("tcp", ":50051")
 	if err != nil {
