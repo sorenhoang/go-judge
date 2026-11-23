@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_submissions_unfinished_updated_at;

@@ -15,7 +15,7 @@ All 6 planned phases are done. See the [implementation plan](docs/go-judge-imple
 | 1 — Monolith Judge (MVP) | Frontend → API → Postgres, runs `go test` synchronously in the API process |
 | 2 — Code Runner (gRPC) | Code execution extracted into its own `code-runner` service |
 | 3 — RabbitMQ + Judge Worker | Judging goes async — API publishes a job and returns `PENDING` immediately |
-| 4 — Reliability | Retry with backoff, dead-letter queue, idempotent processing, graceful shutdown |
+| 4 — Reliability | Retry with backoff, dead-letter queue (quorum queue, delivery limit 10), idempotent processing, graceful shutdown of API/worker/runner, a sweeper that republishes lost jobs |
 | 5 — Docker Sandbox | User code runs inside a locked-down container (`--network none`, memory/cpu/pids limits, read-only root and code mount, non-root user, no capabilities, 1MB output cap) instead of directly on the runner's host |
 | 6 — Realtime Result | `GET /submissions/{id}/stream` (SSE) replaces frontend polling |
 
@@ -61,6 +61,16 @@ Each process needs the previous one up. `.env` (gitignored) holds the local Post
 The code runner needs a local Docker daemon and the `gojudge-gotest` image built above. The image ships a pre-compiled stdlib, so a submission runs in about a second; each run gets a fresh copy of that cache, so nothing persists between submissions. If the image is missing, submissions are retried and then marked `ERROR` with "sandbox unavailable".
 
 RabbitMQ management UI: `http://localhost:15672` (`gojudge`/`gojudge`) — handy to watch jobs flow through the queue.
+
+## Tests
+
+```bash
+go test -short ./...    # unit tests, no infrastructure needed
+go test ./...           # + Docker sandbox tests (needs both sandbox images)
+
+# integration tests against throwaway infra (migrate the DB first)
+TEST_DATABASE_URL="postgres://..." TEST_RABBITMQ_URL="amqp://..." go test ./internal/submission ./internal/queue
+```
 
 ## API
 
