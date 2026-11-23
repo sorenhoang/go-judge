@@ -61,7 +61,8 @@ func planJobResult(sub submission.Submission, err error, maxRetries int) queue.H
 		return queue.Ack
 	}
 
-	if isRetryableRunnerError(err) && sub.RetryCount < maxRetries {
+	// RetryCount counts failed attempts, so this allows maxRetries retries
+	if isRetryableRunnerError(err) && sub.RetryCount <= maxRetries {
 		return queue.Retry
 	}
 
@@ -134,7 +135,7 @@ func handleJob(subRepo submission.Repository, probRepo problem.Repository, runne
 				return retryLater("submission %s final error update failed: %v", msg.SubmissionID, updateErr)
 			}
 
-			log.Printf("submission %s dead-lettered after %d retries: %v", msg.SubmissionID, sub.RetryCount, err)
+			log.Printf("submission %s dead-lettered after %d retries: %v", msg.SubmissionID, sub.RetryCount-1, err)
 			return queue.DeadLetter
 		}
 

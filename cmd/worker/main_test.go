@@ -27,21 +27,25 @@ func TestPlanAlreadyFinishedSubmissionAcksWithoutProcessing(t *testing.T) {
 	}
 }
 
-func TestPlanRetryableFailureRetriesBeforeMaxRetries(t *testing.T) {
-	result := planJobResult(submission.Submission{
-		Status:     submission.StatusRunning,
-		RetryCount: 1,
-	}, context.DeadlineExceeded, maxRetries)
+// RetryCount is the number of failed attempts so far, so maxRetries retries
+// means up to maxRetries+1 attempts: the original one plus maxRetries retries.
+func TestPlanRetryableFailureRetriesUpToMaxRetries(t *testing.T) {
+	for failed := 1; failed <= maxRetries; failed++ {
+		result := planJobResult(submission.Submission{
+			Status:     submission.StatusRunning,
+			RetryCount: failed,
+		}, context.DeadlineExceeded, maxRetries)
 
-	if result != queue.Retry {
-		t.Fatalf("result = %v, want %v", result, queue.Retry)
+		if result != queue.Retry {
+			t.Fatalf("after %d failed attempts: result = %v, want %v (retry %d/%d)", failed, result, queue.Retry, failed, maxRetries)
+		}
 	}
 }
 
-func TestPlanRetryableFailureDeadLettersAtMaxRetries(t *testing.T) {
+func TestPlanRetryableFailureDeadLettersAfterMaxRetries(t *testing.T) {
 	result := planJobResult(submission.Submission{
 		Status:     submission.StatusRunning,
-		RetryCount: maxRetries,
+		RetryCount: maxRetries + 1,
 	}, context.DeadlineExceeded, maxRetries)
 
 	if result != queue.DeadLetter {
