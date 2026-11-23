@@ -7,8 +7,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -24,15 +22,14 @@ import (
 )
 
 const maxRetries = 3
-const submissionTimeout = 45 * time.Second // headroom above judge.sandboxTimeout (30s) for a from-scratch Docker sandbox compile
-const shutdownTimeout = 50 * time.Second
+const submissionTimeout = 45 * time.Second // headroom above judge.sandboxTimeout (30s) so the sandbox's own timeout fires first
+
+// backoffUnit spaces out retries so a requeued job doesn't hot-loop while
+// Postgres or the runner is down. A var so tests can zero it.
+var backoffUnit = time.Second
 
 type runner interface {
 	Run(ctx context.Context, code string, testCode string) (runnerclient.Result, error)
-}
-
-func isTerminalStatus(status submission.Status) bool {
-	return status == submission.StatusPassed || status == submission.StatusFailed || status == submission.StatusError
 }
 
 func isRetryableRunnerError(err error) bool {
@@ -68,12 +65,17 @@ func handleJob(subRepo submission.Repository, probRepo problem.Repository, runne
 		log.Printf("received job for submission %s", msg.SubmissionID)
 
 		sub, err := subRepo.GetByID(ctx, msg.SubmissionID)
-		if err != nil {
-			log.Printf("submission %s lookup failed: %v", msg.SubmissionID, err)
+		if errors.Is(err, submission.ErrNotFound) {
+			log.Printf("submission %s does not exist, dead-lettering", msg.SubmissionID)
 			return queue.DeadLetter
 		}
+		if err != nil {
+			log.Printf("submission %s lookup failed, retrying: %v", msg.SubmissionID, err)
+			time.Sleep(backoffUnit)
+			return queue.Retry
+		}
 
-		if isTerminalStatus(sub.Status) {
+		if sub.Status.IsTerminal() {
 			log.Printf("submission %s already finished with status %s, acking", msg.SubmissionID, sub.Status)
 			return queue.Ack
 		}
@@ -84,9 +86,18 @@ func handleJob(subRepo submission.Repository, probRepo problem.Repository, runne
 		}
 
 		prob, err := probRepo.Get(ctx, msg.ProblemID)
-		if err != nil {
-			log.Printf("problem %s lookup failed for submission %s: %v", msg.ProblemID, msg.SubmissionID, err)
+		if errors.Is(err, problem.ErrNotFound) {
+			if updateErr := subRepo.UpdateResult(ctx, msg.SubmissionID, submission.StatusError, "problem "+msg.ProblemID+" not found", 0, 0); updateErr != nil {
+				log.Printf("submission %s error update failed: %v", msg.SubmissionID, updateErr)
+				return queue.Retry
+			}
+			log.Printf("problem %s not found for submission %s, dead-lettering", msg.ProblemID, msg.SubmissionID)
 			return queue.DeadLetter
+		}
+		if err != nil {
+			log.Printf("problem %s lookup failed for submission %s, retrying: %v", msg.ProblemID, msg.SubmissionID, err)
+			time.Sleep(backoffUnit)
+			return queue.Retry
 		}
 
 		jobCtx, cancel := context.WithTimeout(ctx, submissionTimeout)
@@ -96,7 +107,7 @@ func handleJob(subRepo submission.Repository, probRepo problem.Repository, runne
 		if err != nil {
 			if !isRetryableRunnerError(err) {
 				output := "runner failed permanently: " + err.Error()
-				if updateErr := subRepo.UpdateResult(context.Background(), msg.SubmissionID, submission.StatusError, output, 0, 0); updateErr != nil {
+				if updateErr := subRepo.UpdateResult(ctx, msg.SubmissionID, submission.StatusError, output, 0, 0); updateErr != nil {
 					log.Printf("submission %s permanent error update failed: %v", msg.SubmissionID, updateErr)
 					return queue.Retry
 				}
@@ -105,7 +116,7 @@ func handleJob(subRepo submission.Repository, probRepo problem.Repository, runne
 				return queue.DeadLetter
 			}
 
-			if retryErr := subRepo.IncrementRetryCount(context.Background(), msg.SubmissionID); retryErr != nil {
+			if retryErr := subRepo.IncrementRetryCount(ctx, msg.SubmissionID); retryErr != nil {
 				log.Printf("submission %s retry_count update failed: %v", msg.SubmissionID, retryErr)
 				return queue.Retry
 			}
@@ -114,12 +125,12 @@ func handleJob(subRepo submission.Repository, probRepo problem.Repository, runne
 			retryDecision := planJobResult(sub, err, maxRetries)
 			if retryDecision == queue.Retry {
 				log.Printf("submission %s retry %d/%d after runner error: %v", msg.SubmissionID, sub.RetryCount, maxRetries, err)
-				sleepWithContext(ctx, time.Duration(sub.RetryCount)*time.Second)
+				time.Sleep(time.Duration(sub.RetryCount) * backoffUnit)
 				return queue.Retry
 			}
 
 			output := "runner failed after retries: " + err.Error()
-			if updateErr := subRepo.UpdateResult(context.Background(), msg.SubmissionID, submission.StatusError, output, 0, 0); updateErr != nil {
+			if updateErr := subRepo.UpdateResult(ctx, msg.SubmissionID, submission.StatusError, output, 0, 0); updateErr != nil {
 				log.Printf("submission %s final error update failed: %v", msg.SubmissionID, updateErr)
 				return queue.Retry
 			}
@@ -136,29 +147,6 @@ func handleJob(subRepo submission.Repository, probRepo problem.Repository, runne
 		log.Printf("submission %s verdict: %s", msg.SubmissionID, result.Verdict)
 
 		return queue.Ack
-	}
-}
-
-func trackJob(wg *sync.WaitGroup, inFlight *int64, handler func(context.Context, queue.SubmissionCreated) queue.HandlerResult) func(context.Context, queue.SubmissionCreated) queue.HandlerResult {
-	return func(ctx context.Context, msg queue.SubmissionCreated) queue.HandlerResult {
-		wg.Add(1)
-		atomic.AddInt64(inFlight, 1)
-		defer func() {
-			atomic.AddInt64(inFlight, -1)
-			wg.Done()
-		}()
-
-		return handler(ctx, msg)
-	}
-}
-
-func sleepWithContext(ctx context.Context, d time.Duration) {
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-
-	select {
-	case <-ctx.Done():
-	case <-timer.C:
 	}
 }
 
@@ -202,27 +190,11 @@ func main() {
 	submissionRepo := submission.NewPostgresRepository(db)
 
 	log.Println("worker is running, waiting for jobs")
-	var wg sync.WaitGroup
-	var inFlight int64
-	handler := handleJob(submissionRepo, problemRepo, runnerClient)
 
-	if err := consumer.Consume(ctx, trackJob(&wg, &inFlight, handler)); err != nil {
+	// Consume returns once ctx is cancelled and the in-flight job (if any) has finished
+	if err := consumer.Consume(ctx, handleJob(submissionRepo, problemRepo, runnerClient)); err != nil {
 		log.Fatal(err)
 	}
 
-	if ctx.Err() != nil {
-		log.Printf("shutting down, waiting for %d in-flight jobs", atomic.LoadInt64(&inFlight))
-		done := make(chan struct{})
-		go func() {
-			wg.Wait()
-			close(done)
-		}()
-
-		select {
-		case <-done:
-			log.Println("worker shutdown complete")
-		case <-time.After(shutdownTimeout):
-			log.Printf("worker shutdown timed out after %s", shutdownTimeout)
-		}
-	}
+	log.Println("worker shutdown complete")
 }

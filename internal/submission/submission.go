@@ -17,6 +17,10 @@ const (
 	StatusError   Status = "ERROR"
 )
 
+func (s Status) IsTerminal() bool {
+	return s == StatusPassed || s == StatusFailed || s == StatusError
+}
+
 type Submission struct {
 	ID          string    `json:"id"`
 	ProblemID   string    `json:"problem_id"`

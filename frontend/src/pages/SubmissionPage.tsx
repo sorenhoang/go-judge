@@ -26,9 +26,13 @@ export default function SubmissionPage() {
       }
     };
 
+    // While CONNECTING, EventSource is already reconnecting on its own (network
+    // blip, or the server closing a long-running stream) and the server resends
+    // the current status. Only CLOSED (e.g. a 404) is a real failure.
     es.onerror = () => {
-      setError("Lost connection to server");
-      es.close();
+      if (es.readyState === EventSource.CLOSED) {
+        setError("Lost connection to server");
+      }
     };
 
     return () => es.close();

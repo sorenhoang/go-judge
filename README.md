@@ -16,7 +16,7 @@ All 6 planned phases are done. See the [implementation plan](docs/go-judge-imple
 | 2 — Code Runner (gRPC) | Code execution extracted into its own `code-runner` service |
 | 3 — RabbitMQ + Judge Worker | Judging goes async — API publishes a job and returns `PENDING` immediately |
 | 4 — Reliability | Retry with backoff, dead-letter queue, idempotent processing, graceful shutdown |
-| 5 — Docker Sandbox | User code runs inside a locked-down container (`--network none`, memory/cpu/pids limits, read-only root) instead of directly on the runner's host |
+| 5 — Docker Sandbox | User code runs inside a locked-down container (`--network none`, memory/cpu/pids limits, read-only root and code mount, non-root user, no capabilities, 1MB output cap) instead of directly on the runner's host |
 | 6 — Realtime Result | `GET /submissions/{id}/stream` (SSE) replaces frontend polling |
 
 ## Architecture
@@ -45,6 +45,7 @@ Code Runner  ---> docker run (sandboxed go test)
 
 ```bash
 docker compose up -d                              # postgres + rabbitmq
+docker build -f sandbox/gotest.Dockerfile -t gojudge-gotest:latest sandbox   # sandbox image (once, ~10s)
 set -a; source .env; set +a                        # DATABASE_URL, RUNNER_ADDR, RABBITMQ_URL
 migrate -path migrations -database "$DATABASE_URL" up
 
@@ -57,7 +58,7 @@ cd frontend && npm install && npm run dev            # frontend on :5173
 
 Each process needs the previous one up. `.env` (gitignored) holds the local Postgres/RabbitMQ credentials and connection strings — see `docker-compose.yml` for the expected values.
 
-The code runner needs a local Docker daemon and pulls `golang:1.25` on first use (`docker pull golang:1.25`). A cold sandbox run (no build cache persists between submissions) takes roughly 30 seconds — expected, not a bug.
+The code runner needs a local Docker daemon and the `gojudge-gotest` image built above. The image ships a pre-compiled stdlib, so a submission runs in about a second; each run gets a fresh copy of that cache, so nothing persists between submissions. If the image is missing, submissions are retried and then marked `ERROR` with "sandbox unavailable".
 
 RabbitMQ management UI: `http://localhost:15672` (`gojudge`/`gojudge`) — handy to watch jobs flow through the queue.
 

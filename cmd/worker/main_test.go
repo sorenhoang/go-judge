@@ -3,13 +3,19 @@ package main
 import (
 	"context"
 	"errors"
-	"sync"
-	"sync/atomic"
 	"testing"
 
+	"github.com/sorenhoang/go-judge/internal/problem"
 	"github.com/sorenhoang/go-judge/internal/queue"
+	"github.com/sorenhoang/go-judge/internal/runnerclient"
 	"github.com/sorenhoang/go-judge/internal/submission"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
+
+func init() {
+	backoffUnit = 0
+}
 
 func TestPlanAlreadyFinishedSubmissionAcksWithoutProcessing(t *testing.T) {
 	result := planJobResult(submission.Submission{
@@ -54,32 +60,80 @@ func TestPlanPermanentFailureDeadLetters(t *testing.T) {
 	}
 }
 
-func TestTrackJobForwardsConsumerContext(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	var wg sync.WaitGroup
-	var inFlight int64
-	called := false
-
-	wrapped := trackJob(&wg, &inFlight, func(ctx context.Context, _ queue.SubmissionCreated) queue.HandlerResult {
-		called = true
-		if ctx.Err() != context.Canceled {
-			t.Fatalf("ctx.Err() = %v, want %v", ctx.Err(), context.Canceled)
-		}
-		return queue.Ack
-	})
-
-	result := wrapped(ctx, queue.SubmissionCreated{})
-	wg.Wait()
-
-	if result != queue.Ack {
-		t.Fatalf("result = %v, want %v", result, queue.Ack)
+func TestUnavailableRunnerIsRetryable(t *testing.T) {
+	if !isRetryableRunnerError(status.Error(codes.Unavailable, "sandbox unavailable")) {
+		t.Fatal("codes.Unavailable should be retryable")
 	}
-	if !called {
-		t.Fatal("handler was not called")
+}
+
+type fakeSubmissions struct {
+	submission.Repository
+	sub       submission.Submission
+	getErr    error
+	resultSet submission.Status
+}
+
+func (f *fakeSubmissions) GetByID(context.Context, string) (submission.Submission, error) {
+	return f.sub, f.getErr
+}
+
+func (f *fakeSubmissions) UpdateStatus(_ context.Context, _ string, s submission.Status) error {
+	f.sub.Status = s
+	return nil
+}
+
+func (f *fakeSubmissions) UpdateResult(_ context.Context, _ string, s submission.Status, _ string, _ int, _ int) error {
+	f.resultSet = s
+	return nil
+}
+
+func (f *fakeSubmissions) IncrementRetryCount(context.Context, string) error { return nil }
+
+type fakeProblems struct {
+	problem.Repository
+	err error
+}
+
+func (f fakeProblems) Get(context.Context, string) (problem.Problem, error) {
+	return problem.Problem{TestCode: "func TestX(t *testing.T) {}"}, f.err
+}
+
+type fakeRunner struct{}
+
+func (fakeRunner) Run(context.Context, string, string) (runnerclient.Result, error) {
+	return runnerclient.Result{Verdict: submission.StatusPassed, TotalTests: 1, PassedTests: 1}, nil
+}
+
+func TestHandleJob(t *testing.T) {
+	transient := errors.New("connection refused")
+
+	cases := []struct {
+		name       string
+		getErr     error
+		problemErr error
+		want       queue.HandlerResult
+		wantStatus submission.Status // terminal status written, "" if none
+	}{
+		{"happy path", nil, nil, queue.Ack, submission.StatusPassed},
+		{"submission lookup transient error retries", transient, nil, queue.Retry, ""},
+		{"submission missing dead-letters", submission.ErrNotFound, nil, queue.DeadLetter, ""},
+		{"problem lookup transient error retries", nil, transient, queue.Retry, ""},
+		{"problem missing marks ERROR before dead-lettering", nil, problem.ErrNotFound, queue.DeadLetter, submission.StatusError},
 	}
-	if got := atomic.LoadInt64(&inFlight); got != 0 {
-		t.Fatalf("inFlight = %d, want 0", got)
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			subs := &fakeSubmissions{sub: submission.Submission{Status: submission.StatusPending}, getErr: tc.getErr}
+			handler := handleJob(subs, fakeProblems{err: tc.problemErr}, fakeRunner{})
+
+			got := handler(context.Background(), queue.SubmissionCreated{SubmissionID: "s1", ProblemID: "p1"})
+
+			if got != tc.want {
+				t.Fatalf("result = %v, want %v", got, tc.want)
+			}
+			if subs.resultSet != tc.wantStatus {
+				t.Fatalf("terminal status = %q, want %q", subs.resultSet, tc.wantStatus)
+			}
+		})
 	}
 }
