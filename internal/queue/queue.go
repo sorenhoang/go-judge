@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"strconv"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -18,11 +20,36 @@ const ExchangeDeadLetter = "judge.dlx"
 const QueueSubmissionDead = "judge.submission.dead"
 const RoutingKeySubmissionDead = "judge.submission.dead"
 
-// deliveryLimit caps every Retry path (runner and DB errors alike): once a
-// message has been returned this many times the broker dead-letters it.
-// Above the worker's 3 runner attempts, so it only kicks in for failures
-// that keep repeating.
+// QueueSubmissionRetry holds jobs waiting out their retry delay. Each message
+// gets its own TTL; when it expires the broker dead-letters it back into
+// QueueSubmissionCreated. Nothing consumes it directly.
+const QueueSubmissionRetry = "judge.submission.retry"
+
+// headerRetryAttempt counts retries on the republished copy. The quorum
+// queue's own delivery count starts over for every copy, so this is what
+// caps retries.
+const headerRetryAttempt = "x-retry-attempt"
+
+// deliveryLimit caps every Retry path (runner and DB errors alike) via
+// headerRetryAttempt, and plain redeliveries (worker crash, shutdown) via the
+// quorum queue's x-delivery-limit. Above the worker's 4 runner attempts, so it
+// only kicks in for failures that keep repeating.
 const deliveryLimit = 10
+
+// retry delays double per attempt up to retryMaxDelay; vars so tests can
+// shrink them
+var (
+	retryBaseDelay = time.Second
+	retryMaxDelay  = 30 * time.Second
+)
+
+func retryDelay(attempt int) time.Duration {
+	d := retryBaseDelay
+	for i := 1; i < attempt && d < retryMaxDelay; i++ {
+		d *= 2
+	}
+	return min(d, retryMaxDelay)
+}
 
 type HandlerResult int
 
@@ -101,13 +128,22 @@ func declareTopology(ch *amqp.Channel) error {
 		return err
 	}
 
-	_, err := ch.QueueDeclare(QueueSubmissionCreated, true, false, false, false, amqp.Table{
+	if _, err := ch.QueueDeclare(QueueSubmissionCreated, true, false, false, false, amqp.Table{
 		"x-queue-type":              "quorum",
 		"x-delivery-limit":          deliveryLimit,
 		"x-dead-letter-exchange":    ExchangeDeadLetter,
 		"x-dead-letter-routing-key": RoutingKeySubmissionDead,
-	})
+	}); err != nil {
+		return err
+	}
 
+	// ponytail: per-message TTL only expires at the head of the queue, so a
+	// short delay can wait behind a longer one (at most retryMaxDelay). One
+	// queue per delay step if retry timing ever needs to be exact.
+	_, err := ch.QueueDeclare(QueueSubmissionRetry, true, false, false, false, amqp.Table{
+		"x-dead-letter-exchange":    "", // the default exchange routes by queue name
+		"x-dead-letter-routing-key": QueueSubmissionCreated,
+	})
 	return err
 }
 
@@ -149,11 +185,51 @@ func (c *Consumer) Consume(ctx context.Context, handler func(context.Context, Su
 			case Ack:
 				d.Ack(false)
 			case Retry:
-				d.Nack(false, true)
+				c.retryLater(d, msg)
 			default:
 				d.Nack(false, false)
 			}
 		}
+	}
+}
+
+// retryLater parks a copy of d in the retry queue and acks the original, so
+// the worker moves on to the next job instead of sleeping through the delay.
+// Not atomic: a crash in between redelivers the original as well, which the
+// worker handles like any duplicate.
+func (c *Consumer) retryLater(d amqp.Delivery, msg SubmissionCreated) {
+	attempt := retryAttemptOf(d) + 1
+	if attempt > deliveryLimit {
+		log.Printf("submission %s dead-lettered after %d retries", msg.SubmissionID, deliveryLimit)
+		d.Nack(false, false)
+		return
+	}
+
+	delay := retryDelay(attempt)
+	err := c.ch.PublishWithContext(context.Background(), "", QueueSubmissionRetry, false, false, amqp.Publishing{
+		ContentType:  d.ContentType,
+		DeliveryMode: amqp.Persistent,
+		Body:         d.Body,
+		Expiration:   strconv.FormatInt(delay.Milliseconds(), 10),
+		Headers:      amqp.Table{headerRetryAttempt: int32(attempt)},
+	})
+	if err != nil {
+		// still retried, just without the delay; the delivery limit caps this path
+		log.Printf("submission %s: parking for retry failed, requeueing now: %v", msg.SubmissionID, err)
+		d.Nack(false, true)
+		return
+	}
+	d.Ack(false)
+}
+
+func retryAttemptOf(d amqp.Delivery) int {
+	switch n := d.Headers[headerRetryAttempt].(type) {
+	case int32:
+		return int(n)
+	case int64:
+		return int(n)
+	default:
+		return 0
 	}
 }
 

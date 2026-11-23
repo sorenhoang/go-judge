@@ -13,10 +13,6 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func init() {
-	backoffUnit = 0
-}
-
 func TestPlanAlreadyFinishedSubmissionAcksWithoutProcessing(t *testing.T) {
 	result := planJobResult(submission.Submission{
 		Status: submission.StatusPassed,

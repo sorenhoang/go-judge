@@ -24,15 +24,10 @@ import (
 const maxRetries = 3
 const submissionTimeout = 45 * time.Second // headroom above judge.sandboxTimeout (30s) so the sandbox's own timeout fires first
 
-// backoffUnit spaces out retries so a requeued job doesn't hot-loop while
-// Postgres or the runner is down. A var so tests can zero it.
-var backoffUnit = time.Second
-
-// retryLater waits before requeueing so a failure that keeps happening (e.g.
-// Postgres down) doesn't spin; the queue's delivery limit caps the total.
+// retryLater logs and asks the queue to retry; the queue delays the job
+// (growing per attempt) and caps the number of retries.
 func retryLater(format string, args ...any) queue.HandlerResult {
 	log.Printf(format+", retrying", args...)
-	time.Sleep(backoffUnit)
 	return queue.Retry
 }
 
@@ -126,7 +121,6 @@ func handleJob(subRepo submission.Repository, probRepo problem.Repository, runne
 			retryDecision := planJobResult(sub, err, maxRetries)
 			if retryDecision == queue.Retry {
 				log.Printf("submission %s retry %d/%d after runner error: %v", msg.SubmissionID, sub.RetryCount, maxRetries, err)
-				time.Sleep(time.Duration(sub.RetryCount) * backoffUnit)
 				return queue.Retry
 			}
 
