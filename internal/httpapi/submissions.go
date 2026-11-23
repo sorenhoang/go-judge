@@ -1,8 +1,10 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -14,18 +16,28 @@ import (
 	"github.com/sorenhoang/go-judge/internal/submission"
 )
 
-const streamPollInterval = 500 * time.Millisecond
+// vars so tests can shrink them
+var (
+	streamPollInterval = 500 * time.Millisecond
+	// bounds a stream for a submission that never finishes; EventSource
+	// reconnects on its own and gets the current status again
+	streamMaxDuration = 2 * time.Minute
+)
+
+type publisher interface {
+	Publish(ctx context.Context, msg queue.SubmissionCreated) error
+}
 
 type SubmissionHandler struct {
 	submissionRepo submission.Repository
 	problemRepo    problem.Repository
-	publisher      *queue.Publisher
+	publisher      publisher
 }
 
 func NewSubmissionHandler(
 	submissionRepo submission.Repository,
 	problemRepo problem.Repository,
-	publisher *queue.Publisher,
+	publisher publisher,
 ) SubmissionHandler {
 	return SubmissionHandler{
 		submissionRepo: submissionRepo,
@@ -87,6 +99,11 @@ func (h SubmissionHandler) createSubmission(w http.ResponseWriter, r *http.Reque
 		SubmissionID: s.ID,
 		ProblemID:    s.ProblemID,
 	}); err != nil {
+		// nothing will ever pick this row up, so don't leave it PENDING forever
+		ctx := context.WithoutCancel(r.Context())
+		if updateErr := h.submissionRepo.UpdateResult(ctx, s.ID, submission.StatusError, "failed to queue submission: "+err.Error(), 0, 0); updateErr != nil {
+			log.Printf("submission %s: publish failed (%v) and marking it ERROR failed: %v", s.ID, err, updateErr)
+		}
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -147,6 +164,7 @@ func (h SubmissionHandler) streamSubmission(w http.ResponseWriter, r *http.Reque
 	}
 
 	var lastStatus submission.Status
+	deadline := time.After(streamMaxDuration)
 
 	for {
 		s, err := h.submissionRepo.GetByID(r.Context(), id)
@@ -161,24 +179,17 @@ func (h SubmissionHandler) streamSubmission(w http.ResponseWriter, r *http.Reque
 			lastStatus = s.Status
 		}
 
-		if isTerminalStatus(s.Status) {
+		if s.Status.IsTerminal() {
 			return
 		}
 
 		select {
 		case <-r.Context().Done():
 			return
+		case <-deadline:
+			return
 		case <-time.After(streamPollInterval):
 		}
-	}
-}
-
-func isTerminalStatus(s submission.Status) bool {
-	switch s {
-	case submission.StatusPassed, submission.StatusFailed, submission.StatusError:
-		return true
-	default:
-		return false
 	}
 }
 
