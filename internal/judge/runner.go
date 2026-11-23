@@ -39,11 +39,12 @@ type Result struct {
 }
 
 type Runner struct {
-	image string
+	image   string // go test problems
+	ioImage string // stdin/stdout problems
 }
 
 func NewRunner() Runner {
-	return Runner{image: sandboxImage}
+	return Runner{image: sandboxImage, ioImage: sandboxIOImage}
 }
 
 func (r Runner) Run(ctx context.Context, code, testCode string) (Result, error) {
