@@ -194,10 +194,15 @@ func (r Runner) compile(ctx context.Context, dir string, spec langSpec) (output 
 	defer cancel()
 
 	name := "gojudge-compile-" + filepath.Base(dir)
-	args := append(r.sandboxArgs(name, compileMemoryLimit,
+	args := r.sandboxArgs(name, compileMemoryLimit,
 		"-v", filepath.Join(dir, "src")+":/box/src",
 		"-v", filepath.Join(dir, "bin")+":/box/bin",
-	), spec.compile...)
+	)
+	// backstop if the runner dies and never removes the container. Not used in
+	// the run stage: there the harness must stay PID 1, and it already bounds
+	// every test with `timeout`.
+	args = append(args, "timeout", "-s", "KILL", containerHardLimit)
+	args = append(args, spec.compile...)
 
 	out, runErr := dockerRun(compileCtx, name, args)
 	output = strings.TrimSpace(out.buf.String())
