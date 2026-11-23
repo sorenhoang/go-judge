@@ -1,9 +1,15 @@
 package main
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
@@ -14,9 +20,17 @@ import (
 	"github.com/sorenhoang/go-judge/internal/problem"
 	"github.com/sorenhoang/go-judge/internal/queue"
 	"github.com/sorenhoang/go-judge/internal/submission"
+	"github.com/sorenhoang/go-judge/internal/sweeper"
 )
 
+// shutdownGrace lets in-flight requests (e.g. a create between its insert and
+// publish) finish. Open SSE streams are then closed; EventSource reconnects.
+const shutdownGrace = 5 * time.Second
+
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	r := chi.NewRouter()
 
 	r.Use(cors.Handler(cors.Options{
@@ -64,6 +78,25 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	})
 
+	go sweeper.Run(ctx, submissionRepo, publisher)
+
+	srv := &http.Server{Addr: ":8080", Handler: r}
+	shutdownDone := make(chan struct{})
+	go func() {
+		defer close(shutdownDone)
+		<-ctx.Done()
+		log.Printf("shutting down, waiting up to %s for in-flight requests", shutdownGrace)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			srv.Close() // only long-lived SSE streams are left by now
+		}
+	}()
+
 	log.Println("Starting server on :8080")
-	log.Fatal(http.ListenAndServe(":8080", r))
+	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal(err)
+	}
+	<-shutdownDone
+	log.Println("api shutdown complete")
 }

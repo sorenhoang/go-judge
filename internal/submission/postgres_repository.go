@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"time"
 )
 
 type postgresRepository struct {
@@ -81,4 +83,50 @@ func (r postgresRepository) GetByID(ctx context.Context, id string) (Submission,
 	}
 
 	return s, nil
+}
+
+func (r postgresRepository) RequeueStale(ctx context.Context, staleAfter, maxAge time.Duration, limit int) ([]Submission, error) {
+	// SKIP LOCKED + touching updated_at makes this a claim: concurrent
+	// sweepers (several API instances) never republish the same row twice
+	rows, err := r.db.QueryContext(ctx, `
+		UPDATE submissions
+		SET updated_at = NOW()
+		WHERE id IN (
+			SELECT id FROM submissions
+			WHERE status IN ($1, $2)
+				AND updated_at < NOW() - make_interval(secs => $3)
+				AND created_at >= NOW() - make_interval(secs => $4)
+			ORDER BY updated_at
+			LIMIT $5
+			FOR UPDATE SKIP LOCKED
+		)
+		RETURNING id, problem_id
+	`, StatusPending, StatusRunning, staleAfter.Seconds(), maxAge.Seconds(), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var stale []Submission
+	for rows.Next() {
+		var s Submission
+		if err := rows.Scan(&s.ID, &s.ProblemID); err != nil {
+			return nil, err
+		}
+		stale = append(stale, s)
+	}
+	return stale, rows.Err()
+}
+
+func (r postgresRepository) FailAbandoned(ctx context.Context, maxAge time.Duration) (int64, error) {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE submissions
+		SET status = $1, output = $2, updated_at = NOW()
+		WHERE status IN ($3, $4)
+			AND created_at < NOW() - make_interval(secs => $5)
+	`, StatusError, fmt.Sprintf("gave up: not judged within %s", maxAge), StatusPending, StatusRunning, maxAge.Seconds())
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }

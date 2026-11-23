@@ -22,6 +22,7 @@ const (
 	sandboxPidsLimit   = "128"
 	sandboxTmpfsSize   = "512m,exec" // exec: tmpfs is noexec by default, which blocks running the compiled test binary
 	sandboxTimeout     = 30 * time.Second
+	containerHardLimit = "35"          // seconds; sandboxTimeout plus slack, enforced inside the container
 	goTestSandboxUser  = "65534:65534" // nobody; the image chowns /gocache to it
 	maxOutputBytes     = 1 << 20       // well under gRPC's 4MB default receive limit
 	dockerErrorExit    = 125           // `docker run` itself failed (daemon down, image missing, bad flags)
@@ -94,6 +95,8 @@ func (r Runner) Run(ctx context.Context, code, testCode string) (Result, error) 
 		"-v", dir + ":/app:ro",
 		"-w", "/app",
 		r.image,
+		// backstop if the runner dies (SIGKILL) and never removes the container
+		"timeout", "-s", "KILL", containerHardLimit,
 		"go", "test", "-json", "./...",
 	}
 
